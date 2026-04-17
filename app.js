@@ -15,10 +15,22 @@ let   fbUser   = null;
 // ── Storage ──────────────────────────────────────────────────────────────
 const STORAGE_KEY = 'anki_data';
 
+// Firebase Realtime DB stores arrays as objects with numeric keys.
+// This converts them back to real JS arrays.
+function toArray(val) {
+  if (!val) return [];
+  if (Array.isArray(val)) return val;
+  // Object with numeric keys → array
+  return Object.keys(val).sort((a, b) => Number(a) - Number(b)).map(k => val[k]);
+}
+
 function _sanitize(d) {
-  if (!d.folders)       d.folders = [];
+  if (!d) d = {};
+  d.folders        = toArray(d.folders);
+  d.decks          = toArray(d.decks);
+  // Also normalize cards inside each deck
+  d.decks.forEach(deck => { deck.cards = toArray(deck.cards); });
   if (!d.lightWorkTotal) d.lightWorkTotal = 0;
-  if (!d.decks)         d.decks = [];
   return d;
 }
 
@@ -78,7 +90,7 @@ function uid() {
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let data = loadLocal(); // always start from localStorage — never blank on load
+let data = _sanitize({}); // always populated from Firebase on sign-in
 let currentDeckId = null;
 let activeTags    = [];       // tags currently selected in the filter bar
 let studyQueue   = [];   // remaining cards this session
@@ -1255,13 +1267,11 @@ auth.onAuthStateChanged(async user => {
     const name = (user.displayName || user.email || '').split(' ')[0];
     $('sync-status').textContent = name;
     $('auth-overlay').classList.add('hidden');
-    // Show localStorage data immediately, then update from Firebase if newer
+    // Always fetch from Firebase — never trust the local cache
+    $('deck-list').innerHTML = '<p class="muted" style="padding:16px">Loading…</p>';
+    $('no-decks').classList.add('hidden');
+    data = await loadFromFirebase();
     renderHome();
-    const cloudData = await loadFromFirebase();
-    if ((cloudData.lastModified || 0) !== (data.lastModified || 0)) {
-      data = cloudData;
-      renderHome();
-    }
   } else {
     fbUser = null;
     $('auth-overlay').classList.remove('hidden');
