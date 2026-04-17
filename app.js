@@ -59,7 +59,15 @@ async function loadFromFirebase() {
     const snap = await database.ref('users/' + fbUser.uid + '/data').get();
     if (snap.exists()) {
       const remote = _sanitize(snap.val());
-      const localNewer = (local.lastModified || 0) > (remote.lastModified || 0);
+      // Prefer whichever copy has more content; only fall back to timestamp
+      // when both have the same amount of data (avoids stale phone cache
+      // overwriting real Firebase data because its lastModified is newer).
+      const localContent  = (local.decks  || []).length + (local.folders  || []).length;
+      const remoteContent = (remote.decks || []).length + (remote.folders || []).length;
+      const localNewer =
+        localContent > remoteContent ||
+        (localContent === remoteContent &&
+          (local.lastModified || 0) > (remote.lastModified || 0));
       const d = localNewer ? local : remote;
       if (localNewer) {
         // Push fresher local copy up to Firebase
