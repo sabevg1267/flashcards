@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="SnapStack" />
+  <meta name="theme-color" content="#191919" />
+  <title>SnapStack</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Home: deck list -->
+  <div id="view-home" class="view active">
+    <header>
+      <h1>SnapStack</h1>
+      <span id="sync-status" class="sync-status"></span>
+      <button id="btn-new-folder">+ Folder</button>
+      <button id="btn-new-deck">+ Deck</button>
+      <button id="btn-signout" class="signout-btn" title="Sign out">↩</button>
+    </header>
+    <div id="deck-list"></div>
+    <p id="no-decks" class="muted">No decks yet. Create one to get started.</p>
+  </div>
+
+  <!-- Deck view: card list -->
+  <div id="view-deck" class="view">
+    <header>
+      <button class="back" id="btn-back-home">&#8592;</button>
+      <h2 id="deck-title"></h2>
+      <button id="btn-import" title="Import cards from text">&#8593; Import</button>
+      <button id="btn-export" title="Export to CSV">&#8595; Export</button>
+      <button id="btn-study">Study</button>
+    </header>
+    <div id="tag-filter-bar" class="hidden">
+      <span class="tag-filter-label">Filter by tag:</span>
+      <div id="tag-filter-chips"></div>
+      <button id="btn-clear-tags" class="tag-clear-btn">Clear</button>
+    </div>
+    <div id="card-list"></div>
+    <p id="no-cards" class="muted">No cards yet.</p>
+    <button id="btn-new-card" class="fab">+ Card</button>
+  </div>
+
+  <!-- Study view -->
+  <div id="view-study" class="view">
+    <header>
+      <button class="back" id="btn-back-deck">&#8592;</button>
+      <span id="study-progress"></span>
+      <button id="btn-ai-key" class="ai-key-btn" title="Set OpenAI API key">&#9881;</button>
+    </header>
+    <div id="study-area">
+      <div id="flip-card" class="card-3d">
+        <canvas id="confetti-canvas"></canvas>
+        <div class="card-face front"><div id="card-front-text" class="card-content"></div></div>
+        <div class="card-face back">
+          <div id="card-back-text" class="card-content"></div>
+          <div id="rating-btns">
+            <button class="rating difficult" id="btn-difficult">Difficult</button>
+            <button class="rating hard" id="btn-hard">Hard</button>
+            <button class="rating easy" id="btn-easy">Easy</button>
+            <button class="rating light" id="btn-light">Light work</button>
+          </div>
+        </div>
+      </div>
+      <button id="btn-flip" class="flip-btn">Flip</button>
+      <button id="btn-ask-ai" class="ask-ai-btn hidden">&#10024; Explain more</button>
+    </div>
+    <div id="ai-panel" class="hidden">
+      <div id="ai-panel-inner">
+        <div id="ai-response"></div>
+      </div>
+    </div>
+    <div id="study-done" class="hidden">
+      <p>Session complete!</p>
+      <button id="btn-finish-study">Back to Deck</button>
+    </div>
+  </div>
+
+  <!-- Modal -->
+  <div id="modal-overlay" class="hidden">
+    <div id="modal">
+      <h3 id="modal-title"></h3>
+
+      <!-- Deck rename (text only) -->
+      <input type="text" id="modal-input" placeholder="" maxlength="120" />
+
+      <!-- Card type toggle -->
+      <div id="card-type-toggle" class="hidden">
+        <button class="type-btn active" id="type-btn-normal" data-type="normal">Normal</button>
+        <button class="type-btn" id="type-btn-cloze" data-type="cloze">Cloze</button>
+      </div>
+
+      <!-- Normal card fields (support images) -->
+      <div class="card-field-row hidden" id="row-front">
+        <div id="modal-front" class="modal-field" contenteditable="true" data-placeholder="Front (question)"></div>
+        <button class="img-pick-btn" id="img-btn-front" title="Insert image">&#128444;</button>
+        <input type="file" id="img-file-front" accept="image/*" class="hidden" />
+      </div>
+      <div class="card-field-row hidden" id="row-back">
+        <div id="modal-back" class="modal-field" contenteditable="true" data-placeholder="Back (answer)"></div>
+        <button class="img-pick-btn" id="img-btn-back" title="Insert image">&#128444;</button>
+        <input type="file" id="img-file-back" accept="image/*" class="hidden" />
+      </div>
+
+      <!-- Cloze field -->
+      <div id="row-cloze" class="hidden">
+        <div class="cloze-toolbar">
+          <span class="cloze-hint">Select text then click <strong>[ ]</strong> to blank it</span>
+          <button id="btn-wrap-cloze" class="cloze-wrap-btn">[ ]&nbsp;Blank</button>
+        </div>
+        <div id="modal-cloze" class="modal-field cloze-field" contenteditable="true" data-placeholder="Type sentence, select words to blank…"></div>
+      </div>
+
+      <div id="card-toast" class="card-toast hidden">&#10003; Card added</div>
+
+      <!-- Tag input -->
+      <div id="row-tags" class="hidden">
+        <div id="tag-chips"></div>
+        <div class="tag-input-row">
+          <input type="text" id="modal-tags" placeholder="Add tag…" maxlength="40" autocomplete="off" />
+          <button type="button" id="btn-add-tag" class="tag-add-btn">+ Add</button>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button id="modal-cancel">Cancel</button>
+        <button id="modal-done" class="hidden">Done</button>
+        <button id="modal-confirm" class="primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import overlay -->
+  <div id="import-overlay" class="hidden">
+    <div id="import-modal">
+      <h3>Import Cards</h3>
+      <p class="import-hint">Paste tab-separated text below. Each line should be <strong>Question</strong> [tab] <strong>Answer</strong>. Lines starting with <code>#</code> are ignored.</p>
+      <textarea id="import-textarea" placeholder="Paste your cards here…" spellcheck="false"></textarea>
+      <div class="import-img-row">
+        <label for="import-img-base" class="import-img-label">Image base URL <span class="import-img-optional">(optional)</span></label>
+        <input type="text" id="import-img-base" placeholder="e.g. https://example.com/media/" spellcheck="false" />
+        <span class="import-img-hint">Relative <code>&lt;img src&gt;</code> paths will be prefixed with this URL</span>
+      </div>
+      <div id="import-preview"></div>
+      <div class="modal-actions">
+        <button id="import-cancel">Cancel</button>
+        <button id="import-confirm" class="primary">Import Cards</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Auth overlay -->
+  <div id="auth-overlay">
+    <div id="auth-modal">
+      <div class="auth-logo">📚</div>
+      <h2>SnapStack</h2>
+      <p class="auth-subtitle">Sign in to sync your decks across every device</p>
+      <button id="btn-google-signin" class="google-signin-btn">
+        <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+        Continue with Google
+      </button>
+      <p class="auth-note">Your data is private and encrypted</p>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
