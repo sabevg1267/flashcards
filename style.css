@@ -1,14 +1,14 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg: #191919;
-  --surface: #222222;
-  --surface2: #2a2a2a;
+  --bg: #0f0f0f;
+  --surface: #161616;
+  --surface2: #1e1e1e;
   --border: #353535;
   --text: #e8e8e8;
   --muted: #666;
-  --accent: #1e5fa8;
-  --accent-hover: #2a72c4;
+  --accent: #3cb371;
+  --accent-hover: #2e9e5e;
   --good: #3d9e6b;
   --again: #c0392b;
   --radius: 10px;
@@ -49,7 +49,7 @@ header h1, header h2 {
 }
 header h1 { 
   letter-spacing: -0.5px;
-  background: linear-gradient(135deg, #4a90d9 0%, #1e5fa8 60%, #163d75 100%);
+  background: linear-gradient(135deg, #5dd68a 0%, #3cb371 60%, #267a4e 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;

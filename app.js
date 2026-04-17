@@ -957,7 +957,7 @@ function fieldIsEmpty(el) {
   return clone.textContent.trim() === '' && !clone.querySelector('img');
 }
 
-$('modal-confirm').addEventListener('click', () => {
+$('modal-confirm').addEventListener('click', async () => {
   if (_isCardModal) {
     if (_cardType === 'cloze') {
       const clozeField = $('modal-cloze');
@@ -968,6 +968,7 @@ $('modal-confirm').addEventListener('click', () => {
         setTimeout(() => clozeField.style.borderColor = '', 1200);
         return;
       }
+      await waitForPendingImages(clozeField);
       const template = clozeField.innerHTML.trim();
       _cardCallback(template, '', 'cloze', [..._pendingTags]);
       if (_isNewCard) {
@@ -980,9 +981,10 @@ $('modal-confirm').addEventListener('click', () => {
         closeModal();
       }
     } else {
+      if (fieldIsEmpty($('modal-front')) || fieldIsEmpty($('modal-back'))) return;
+      await waitForPendingImages($('modal-front'), $('modal-back'));
       const front = $('modal-front').innerHTML.trim();
       const back  = $('modal-back').innerHTML.trim();
-      if (fieldIsEmpty($('modal-front')) || fieldIsEmpty($('modal-back'))) return;
       _cardCallback(front, back, 'normal', [..._pendingTags]);
       if (_isNewCard) {
         $('modal-front').innerHTML = '';
@@ -1003,7 +1005,30 @@ $('modal-confirm').addEventListener('click', () => {
 });
 
 $('modal-cancel').addEventListener('click', closeModal);
-$('modal-done').addEventListener('click', closeModal);
+
+// "Done" should save the current card (if filled) before closing,
+// so clicking Done without first clicking "Add Card" doesn't silently lose work.
+$('modal-done').addEventListener('click', async () => {
+  if (_isCardModal && _isNewCard) {
+    if (_cardType === 'cloze') {
+      const clozeField = $('modal-cloze');
+      if (!fieldIsEmpty(clozeField) && clozeField.textContent.includes('{{')) {
+        await waitForPendingImages(clozeField);
+        _cardCallback(clozeField.innerHTML.trim(), '', 'cloze', [..._pendingTags]);
+      }
+    } else {
+      const frontEmpty = fieldIsEmpty($('modal-front'));
+      const backEmpty  = fieldIsEmpty($('modal-back'));
+      if (!frontEmpty && !backEmpty) {
+        await waitForPendingImages($('modal-front'), $('modal-back'));
+        const front = $('modal-front').innerHTML.trim();
+        const back  = $('modal-back').innerHTML.trim();
+        _cardCallback(front, back, 'normal', [..._pendingTags]);
+      }
+    }
+  }
+  closeModal();
+});
 
 $('modal-overlay').addEventListener('click', e => {
   if (e.target === $('modal-overlay')) closeModal();
@@ -1014,44 +1039,82 @@ $('modal-input').addEventListener('keydown', e => {
 });
 
 // ── Image insertion ───────────────────────────────────────────────────────────
+// Tracks pending FileReader conversions keyed by a unique ID stored on the
+// img element so the confirm handler can await them before reading innerHTML.
+const _imageConversionMap = new Map(); // id → Promise
+let _imgConvId = 0;
+
+// 1×1 transparent GIF — used as a synchronous placeholder so the field is
+// immediately non-empty while the real data URL is being read by FileReader.
+const BLANK_IMG = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
 function insertImageIntoField(field, file) {
-  const reader = new FileReader();
-  reader.onload = e => {
-    const img = document.createElement('img');
-    img.src = e.target.result;
-    field.focus();
-    const sel = window.getSelection();
-    if (sel && sel.rangeCount) {
-      const range = sel.getRangeAt(0);
-      range.deleteContents();
-      range.insertNode(img);
-      range.setStartAfter(img);
-      range.collapse(true);
-      sel.removeAllRanges();
-      sel.addRange(range);
-    } else {
-      field.appendChild(img);
-    }
-  };
-  reader.readAsDataURL(file);
+  if (!file) return; // getAsFile() can return null; bail out gracefully
+
+  const img = document.createElement('img');
+  const convId = ++_imgConvId;
+  img.dataset.convId = convId;
+  // Insert placeholder immediately so fieldIsEmpty() sees an <img> right away
+  img.src = BLANK_IMG;
+
+  // Read the real data URL in the background
+  const conversionDone = new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = ev => {
+      img.src = ev.target.result;
+      _imageConversionMap.delete(convId);
+      resolve();
+    };
+    reader.onerror = () => { _imageConversionMap.delete(convId); resolve(); };
+    reader.readAsDataURL(file);
+  });
+  _imageConversionMap.set(convId, conversionDone);
+
+  field.focus();
+  const sel = window.getSelection();
+  if (sel && sel.rangeCount) {
+    const range = sel.getRangeAt(0);
+    range.deleteContents();
+    range.insertNode(img);
+    range.setStartAfter(img);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  } else {
+    field.appendChild(img);
+  }
+}
+
+// Wait for all pending image conversions inside the given fields
+function waitForPendingImages(...fields) {
+  const promises = [];
+  fields.forEach(field => {
+    field.querySelectorAll('img[data-conv-id]').forEach(img => {
+      const p = _imageConversionMap.get(Number(img.dataset.convId));
+      if (p) promises.push(p);
+    });
+  });
+  return Promise.all(promises);
 }
 
 ['modal-front', 'modal-back'].forEach(id => {
   const field = $(id);
   // Paste image from clipboard
   field.addEventListener('paste', e => {
-    const items = Array.from(e.clipboardData.items || []);
-    const img = items.find(it => it.type.startsWith('image/'));
-    if (img) {
-      e.preventDefault();
-      insertImageIntoField(field, img.getAsFile());
+    const items = Array.from(e.clipboardData?.items || []);
+    const imageItem = items.find(it => it.type.startsWith('image/'));
+    if (imageItem) {
+      const file = imageItem.getAsFile();
+      if (file) {
+        e.preventDefault();
+        insertImageIntoField(field, file);
+        return;
+      }
     }
-    // Plain text paste — let browser handle it but strip HTML tags
-    else {
-      e.preventDefault();
-      const text = e.clipboardData.getData('text/plain');
-      document.execCommand('insertText', false, text);
-    }
+    // Plain text paste — strip HTML tags
+    e.preventDefault();
+    const text = e.clipboardData.getData('text/plain');
+    document.execCommand('insertText', false, text);
   });
 });
 
