@@ -58,26 +58,14 @@ async function loadFromFirebase() {
   try {
     const snap = await database.ref('users/' + fbUser.uid + '/data').get();
     if (snap.exists()) {
+      // Firebase is always the source of truth for signed-in users.
+      // The local copy is only a cache for offline use — never let it
+      // override what's in Firebase.
       const remote = _sanitize(snap.val());
-      // Prefer whichever copy has more content; only fall back to timestamp
-      // when both have the same amount of data (avoids stale phone cache
-      // overwriting real Firebase data because its lastModified is newer).
-      const localContent  = (local.decks  || []).length + (local.folders  || []).length;
-      const remoteContent = (remote.decks || []).length + (remote.folders || []).length;
-      const localNewer =
-        localContent > remoteContent ||
-        (localContent === remoteContent &&
-          (local.lastModified || 0) > (remote.lastModified || 0));
-      const d = localNewer ? local : remote;
-      if (localNewer) {
-        // Push fresher local copy up to Firebase
-        database.ref('users/' + fbUser.uid + '/data').set(d).catch(console.error);
-      } else {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(d));
-      }
-      return d;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
+      return remote;
     }
-    // No Firebase data yet — push local data up
+    // No Firebase data at all yet (first sign-in) — push local data up.
     await database.ref('users/' + fbUser.uid + '/data').set(local);
     return local;
   } catch (err) {
