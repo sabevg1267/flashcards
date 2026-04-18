@@ -64,28 +64,56 @@ window.addEventListener('beforeunload', () => {
 });
 
 // Targeted update — only write specific paths, no full-blob write
+// Guard with _fbReady so this never fires before data is loaded from Firebase.
 function fbPatch(patches) {
-  if (!fbUser) return;
+  if (!fbUser || !_fbReady) return;
   database.ref('users/' + fbUser.uid + '/data').update(patches).catch(console.error);
 }
+
+// Holds the active Firebase realtime listener so we can detach it on sign-out.
+let _fbListener = null;
 
 async function loadFromFirebase() {
   const local = loadLocal();
   try {
     const snap = await database.ref('users/' + fbUser.uid + '/data').get();
+    let initial;
     if (snap.exists()) {
-      const remote = _sanitize(snap.val());
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
-      _fbReady = true; // Firebase data is now in `data` — safe to write back
-      return remote;
+      initial = _sanitize(snap.val());
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(initial));
+    } else {
+      // First sign-in — push local data up.
+      await database.ref('users/' + fbUser.uid + '/data').set(local);
+      initial = local;
     }
-    // No Firebase data at all yet (first sign-in) — push local data up.
-    await database.ref('users/' + fbUser.uid + '/data').set(local);
     _fbReady = true;
-    return local;
+
+    // ── Realtime listener: keep data in sync across tabs / devices ────────
+    // Attaches AFTER the initial load so the first snapshot doesn't
+    // double-process what we already fetched above.
+    if (_fbListener) _fbListener(); // detach any previous listener
+    _fbListener = database.ref('users/' + fbUser.uid + '/data').on('value', snap => {
+      // Ignore if not yet ready (shouldn't happen, but be safe)
+      if (!_fbReady) return;
+      // Ignore if there's a pending local write in the debounce buffer
+      // (we'd just be reading back what we're about to write)
+      if (save._pendingData) return;
+      if (!snap.exists()) return;
+      const remote = _sanitize(snap.val());
+      // Only apply if remote is strictly newer than what we have locally
+      if ((remote.lastModified || 0) > (data.lastModified || 0)) {
+        data = remote;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
+        // Re-render only if on the home screen to avoid interrupting study
+        if (views.home.classList.contains('active'))  renderHome();
+        if (views.deck.classList.contains('active'))  renderDeck();
+      }
+    }, err => console.warn('Firebase listener error:', err));
+
+    return initial;
   } catch (err) {
     console.warn('Firebase unreachable, using localStorage:', err);
-    _fbReady = true; // allow saves even offline so user work isn't lost
+    _fbReady = true;
     return local;
   }
 }
@@ -764,20 +792,10 @@ function rateCard(rating) {
     }
     studyDone++;
     data.lightWorkTotal++;
-    // Write locally
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    // Targeted Firebase update: only the changed card + lightWorkTotal
-    if (fbUser && dbCard) {
-      const deckIdx = data.decks.findIndex(d => d.id === currentDeckId);
-      const cardIdx = data.decks[deckIdx].cards.findIndex(c => c.id === dbCard.id);
-      fbPatch({
-        [`decks/${deckIdx}/cards/${cardIdx}/ease`]:     dbCard.ease,
-        [`decks/${deckIdx}/cards/${cardIdx}/interval`]: dbCard.interval,
-        [`decks/${deckIdx}/cards/${cardIdx}/due`]:      dbCard.due,
-        [`decks/${deckIdx}/cards/${cardIdx}/ratings`]:  dbCard.ratings,
-        lightWorkTotal:                                 data.lightWorkTotal,
-      });
-    }
+    // Use save() so lastModified is updated and the full correct state
+    // is written to Firebase. fbPatch with numeric indices is unsafe after
+    // deletions because toArray() re-compacts indices that Firebase does not.
+    save(data);
     burstConfetti();
     playSuccessSound();
     // If this was the last card, delay the done screen so confetti is visible
@@ -1365,6 +1383,7 @@ auth.onAuthStateChanged(async user => {
   } else {
     fbUser = null;
     _fbReady = false;
+    if (_fbListener) { _fbListener(); _fbListener = null; }
     $('auth-overlay').classList.remove('hidden');
   }
 });
