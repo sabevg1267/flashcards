@@ -184,6 +184,8 @@ button.back:hover { background: var(--surface2); }
 }
 .deck-item:hover { background: var(--surface2); }
 .deck-item.dragging { opacity: 0.35; cursor: grabbing; }
+/* Touch-drag long-press feedback */
+.deck-item:active    { background: var(--surface2); }
 .deck-item .deck-name {
   font-size: 1rem;
   font-weight: 700;

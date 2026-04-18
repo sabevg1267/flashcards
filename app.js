@@ -260,16 +260,91 @@ function makeDeckItem(deck) {
     save(data); renderHome();
   });
 
-  // Drag events
-  item.addEventListener('dragstart', e => {
-    dragDeckId = deck.id;
-    item.classList.add('dragging');
-    e.dataTransfer.effectAllowed = 'move';
-  });
-  item.addEventListener('dragend', () => {
-    dragDeckId = null;
+  // ── Touch drag (iOS) ─────────────────────────────────────────────────────
+  let _touchTimer    = null;
+  let _touchGhost    = null;
+  let _touchDragging = false;
+  let _lastDropTarget = null;
+
+  function _clearDragOver() {
+    document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+  }
+
+  function _dropTargetAt(x, y) {
+    // Temporarily hide the ghost so elementFromPoint sees the elements beneath
+    if (_touchGhost) _touchGhost.style.display = 'none';
+    const el = document.elementFromPoint(x, y);
+    if (_touchGhost) _touchGhost.style.display = '';
+    if (!el) return null;
+    // Walk up until we find a recognised drop target
+    return el.closest('.folder-header, .folder-children, #root-drop-zone');
+  }
+
+  item.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    _touchTimer = setTimeout(() => {
+      _touchDragging = true;
+      dragDeckId = deck.id;
+      item.classList.add('dragging');
+
+      // Build ghost
+      const rect = item.getBoundingClientRect();
+      _touchGhost = item.cloneNode(true);
+      _touchGhost.style.cssText = `
+        position:fixed; z-index:9999; pointer-events:none;
+        width:${rect.width}px; opacity:0.85;
+        left:${rect.left}px; top:${rect.top}px;
+        box-shadow:0 8px 24px rgba(0,0,0,0.5);
+        border-radius:var(--radius);
+      `;
+      document.body.appendChild(_touchGhost);
+    }, 400);
+  }, { passive: true });
+
+  item.addEventListener('touchmove', e => {
+    clearTimeout(_touchTimer);
+    if (!_touchDragging) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    const rect = _touchGhost.getBoundingClientRect();
+    _touchGhost.style.left = (touch.clientX - rect.width / 2) + 'px';
+    _touchGhost.style.top  = (touch.clientY - 24) + 'px';
+
+    _clearDragOver();
+    const target = _dropTargetAt(touch.clientX, touch.clientY);
+    if (target) target.classList.add('drag-over');
+    _lastDropTarget = target;
+  }, { passive: false });
+
+  function _endTouchDrag() {
+    clearTimeout(_touchTimer);
+    if (_touchGhost)    { _touchGhost.remove();  _touchGhost = null; }
+    if (_touchDragging && _lastDropTarget) {
+      const el = _lastDropTarget;
+      _clearDragOver();
+      if (el.id === 'root-drop-zone') {
+        moveDeckToFolder(dragDeckId, null);
+      } else {
+        // Find which folder this target belongs to
+        const block = el.closest('.folder-block');
+        if (block) {
+          const headerName = block.querySelector('.folder-name')?.textContent;
+          const folder = data.folders.find(f => f.name === headerName);
+          if (folder) moveDeckToFolder(dragDeckId, folder.id);
+        }
+      }
+    } else {
+      _clearDragOver();
+    }
     item.classList.remove('dragging');
-  });
+    _touchDragging = false;
+    _lastDropTarget = null;
+    dragDeckId = null;
+  }
+
+  item.addEventListener('touchend',    _endTouchDrag, { passive: true });
+  item.addEventListener('touchcancel', _endTouchDrag, { passive: true });
 
   return item;
 }
