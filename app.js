@@ -346,6 +346,17 @@ function makeDeckItem(deck) {
   item.addEventListener('touchend',    _endTouchDrag, { passive: true });
   item.addEventListener('touchcancel', _endTouchDrag, { passive: true });
 
+  // ── Mouse drag (desktop) ─────────────────────────────────────────────────
+  item.addEventListener('dragstart', e => {
+    dragDeckId = deck.id;
+    item.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  item.addEventListener('dragend', () => {
+    dragDeckId = null;
+    item.classList.remove('dragging');
+  });
+
   return item;
 }
 
