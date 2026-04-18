@@ -145,6 +145,8 @@ button.back:hover { background: var(--surface2); }
   border-radius: 0 0 0 6px;
   min-height: 36px;
 }
+/* Nested folder blocks inside a parent get a subtle extra indent */
+.folder-children > .folder-block { margin-left: 0; }
 .folder-children.collapsed { display: none; }
 .folder-children.drag-over {
   border-left-color: var(--accent);
@@ -298,6 +300,33 @@ button.back:hover { background: var(--surface2); }
   z-index: 10;
 }
 .fab:hover { background: var(--accent-hover); }
+/* Swipe-to-delete button (revealed by touch swipe left, hidden on desktop) */
+.swipe-delete-btn {
+  position: absolute;
+  right: -80px;
+  top: 0;
+  bottom: 0;
+  width: 80px;
+  background: #c0392b;
+  color: #fff;
+  border: none;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: none; /* hidden on desktop; shown only on mobile */
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+.swipe-delete-btn:hover { background: #a93226; }
+
+/* Folder dragging state */
+.folder-block.dragging { opacity: 0.35; }
+
+/* Desktop-only delete button — hidden on mobile via media query */
+.btn-delete-desktop { display: inline-flex; }
+
 @media (max-width: 600px) { .fab { right: 16px; } }
 
 /* 3D Flip Card */
@@ -1102,6 +1131,13 @@ button.primary:hover { background: var(--accent-hover); }
 
   /* Import modal textarea */
   #import-textarea { min-height: 140px; }
+
+  /* Hide desktop delete buttons — use swipe-to-delete instead */
+  .btn-delete-desktop { display: none !important; }
+  .swipe-delete-btn { display: flex; }
+
+  /* Deck/folder items need overflow visible for swipe-delete btn */
+  .deck-item, .folder-header { overflow: visible; }
 
   /* Modal max height so it doesn't overflow screen */
   #modal, #import-modal {

@@ -238,7 +238,8 @@ function showView(name) {
 }
 
 // ── Home view ─────────────────────────────────────────────────────────────────
-let dragDeckId = null; // id of deck being dragged
+let dragDeckId    = null; // id of deck being dragged
+let dragFolderId  = null; // id of folder being dragged
 
 function renderHome() {
   showView('home');
@@ -247,79 +248,9 @@ function renderHome() {
   const total = data.decks.length + data.folders.length;
   $('no-decks').classList.toggle('hidden', total > 0);
 
-  // Render folders
-  data.folders.forEach(folder => {
-    const decksInFolder = data.decks.filter(d => d.folderId === folder.id);
-    const block = document.createElement('div');
-    block.className = 'folder-block';
-
-    // Header
-    const header = document.createElement('div');
-    header.className = 'folder-header';
-    header.innerHTML = `
-      <span class="folder-arrow ${folder.collapsed ? '' : 'open'}">&#9658;</span>
-      <span class="folder-icon">&#128193;</span>
-      <span class="folder-name">${escHtml(folder.name)}</span>
-      <span class="folder-meta">${decksInFolder.length} deck${decksInFolder.length !== 1 ? 's' : ''}</span>
-      <div class="folder-actions">
-        <button data-frename="${folder.id}">Rename</button>
-        <button data-fdelete="${folder.id}">Delete</button>
-      </div>`;
-
-    header.addEventListener('click', e => {
-      if (e.target.closest('.folder-actions')) return;
-      folder.collapsed = !folder.collapsed;
-      save(data);
-      renderHome();
-    });
-    header.querySelector(`[data-frename]`).addEventListener('click', e => {
-      e.stopPropagation();
-      openModal({ title: 'Rename Folder', inputPlaceholder: 'Folder name', inputValue: folder.name }, val => {
-        if (!val.trim()) return;
-        folder.name = val.trim(); save(data); renderHome();
-      });
-    });
-    header.querySelector(`[data-fdelete]`).addEventListener('click', e => {
-      e.stopPropagation();
-      if (!confirm(`Delete folder "${folder.name}"? Decks inside will move to root.`)) return;
-      data.decks.forEach(d => { if (d.folderId === folder.id) d.folderId = null; });
-      data.folders = data.folders.filter(f => f.id !== folder.id);
-      save(data); renderHome();
-    });
-
-    // Folder as a drop target (header)
-    header.addEventListener('dragover', e => { e.preventDefault(); header.classList.add('drag-over'); });
-    header.addEventListener('dragleave', () => header.classList.remove('drag-over'));
-    header.addEventListener('drop', e => {
-      e.preventDefault();
-      header.classList.remove('drag-over');
-      if (dragDeckId) moveDeckToFolder(dragDeckId, folder.id);
-    });
-
-    block.appendChild(header);
-
-    // Children
-    const children = document.createElement('div');
-    children.className = 'folder-children' + (folder.collapsed ? ' collapsed' : '');
-
-    if (decksInFolder.length === 0) {
-      children.innerHTML = '<span class="folder-empty">Drop decks here</span>';
-    } else {
-      decksInFolder.forEach(deck => children.appendChild(makeDeckItem(deck)));
-    }
-
-    // Children area as a drop target
-    children.addEventListener('dragover', e => { e.preventDefault(); children.classList.add('drag-over'); });
-    children.addEventListener('dragleave', e => { if (!children.contains(e.relatedTarget)) children.classList.remove('drag-over'); });
-    children.addEventListener('drop', e => {
-      e.preventDefault();
-      children.classList.remove('drag-over');
-      if (dragDeckId) moveDeckToFolder(dragDeckId, folder.id);
-    });
-
-    block.appendChild(children);
-    list.appendChild(block);
-  });
+  // Render root-level folders recursively
+  const rootFolders = data.folders.filter(f => !f.parentFolderId);
+  rootFolders.forEach(folder => list.appendChild(renderFolderBlock(folder)));
 
   // Root decks (no folder)
   const rootDecks = data.decks.filter(d => !d.folderId);
@@ -328,24 +259,303 @@ function renderHome() {
   // Stats bar
   renderStats();
 
-  // Root drop zone (move deck out of folder back to root)
+  // Root drop zone (move deck/folder out of any folder back to root)
   if (data.folders.length > 0) {
     const rootDrop = document.createElement('div');
     rootDrop.id = 'root-drop-zone';
+    rootDrop.textContent = 'Drop here to move to root';
     rootDrop.addEventListener('dragover', e => { e.preventDefault(); rootDrop.classList.add('drag-over'); });
     rootDrop.addEventListener('dragleave', () => rootDrop.classList.remove('drag-over'));
     rootDrop.addEventListener('drop', e => {
       e.preventDefault();
       rootDrop.classList.remove('drag-over');
-      if (dragDeckId) moveDeckToFolder(dragDeckId, null);
+      if (dragDeckId)   moveDeckToFolder(dragDeckId, null);
+      if (dragFolderId) moveFolderIntoFolder(dragFolderId, null);
     });
     list.appendChild(rootDrop);
   }
 }
 
+function renderFolderBlock(folder) {
+  const subFolders   = data.folders.filter(f => f.parentFolderId === folder.id);
+  const decksInFolder = data.decks.filter(d => d.folderId === folder.id);
+  const totalChildren = subFolders.length + decksInFolder.length;
+
+  const block = document.createElement('div');
+  block.className = 'folder-block';
+  block.dataset.folderId = folder.id;
+
+  // Header
+  const header = document.createElement('div');
+  header.className = 'folder-header';
+  header.draggable = true;
+  header.innerHTML = `
+    <span class="folder-arrow ${folder.collapsed ? '' : 'open'}">&#9658;</span>
+    <span class="folder-icon">&#128193;</span>
+    <span class="folder-name">${escHtml(folder.name)}</span>
+    <span class="folder-meta">${totalChildren} item${totalChildren !== 1 ? 's' : ''}</span>
+    <div class="folder-actions">
+      <button data-frename="${folder.id}">Rename</button>
+      ${folder.parentFolderId ? '<button data-funparent>&#8593; Root</button>' : ''}
+      <button class="btn-delete-desktop" data-fdelete="${folder.id}">Delete</button>
+    </div>`;
+
+  header.addEventListener('click', e => {
+    if (e.target.closest('.folder-actions')) return;
+    folder.collapsed = !folder.collapsed;
+    save(data); renderHome();
+  });
+  header.querySelector(`[data-frename]`).addEventListener('click', e => {
+    e.stopPropagation();
+    openModal({ title: 'Rename Folder', inputPlaceholder: 'Folder name', inputValue: folder.name }, val => {
+      if (!val.trim()) return;
+      folder.name = val.trim(); save(data); renderHome();
+    });
+  });
+  header.querySelector(`[data-fdelete]`).addEventListener('click', e => {
+    e.stopPropagation();
+    _deleteFolder(folder);
+  });
+  if (folder.parentFolderId) {
+    header.querySelector('[data-funparent]').addEventListener('click', e => {
+      e.stopPropagation();
+      moveFolderIntoFolder(folder.id, null);
+    });
+  }
+
+  // ── Desktop drag (folder as draggable) ───────────────────────────────────
+  header.addEventListener('dragstart', e => {
+    dragFolderId = folder.id;
+    dragDeckId   = null;
+    block.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.stopPropagation();
+  });
+  header.addEventListener('dragend', () => {
+    dragFolderId = null;
+    block.classList.remove('dragging');
+  });
+
+  // ── Drop target: accepts decks AND folders ────────────────────────────────
+  header.addEventListener('dragover', e => {
+    if (dragFolderId === folder.id) return;
+    if (dragFolderId && _isFolderDescendant(folder.id, dragFolderId)) return;
+    e.preventDefault(); e.stopPropagation();
+    header.classList.add('drag-over');
+  });
+  header.addEventListener('dragleave', () => header.classList.remove('drag-over'));
+  header.addEventListener('drop', e => {
+    e.preventDefault(); e.stopPropagation();
+    header.classList.remove('drag-over');
+    if (dragDeckId)   moveDeckToFolder(dragDeckId, folder.id);
+    if (dragFolderId && dragFolderId !== folder.id) moveFolderIntoFolder(dragFolderId, folder.id);
+  });
+
+  // ── Swipe-to-delete (mobile) ─────────────────────────────────────────────
+  _attachSwipeDelete(header, () => _deleteFolder(folder));
+
+  // ── Touch drag ───────────────────────────────────────────────────────────
+  _attachFolderTouchDrag(header, block, folder);
+
+  block.appendChild(header);
+
+  // Children area: subfolders + decks
+  const children = document.createElement('div');
+  children.className = 'folder-children' + (folder.collapsed ? ' collapsed' : '');
+
+  if (totalChildren === 0) {
+    children.innerHTML = '<span class="folder-empty">Drop items here</span>';
+  } else {
+    subFolders.forEach(sub => children.appendChild(renderFolderBlock(sub)));
+    decksInFolder.forEach(deck => children.appendChild(makeDeckItem(deck)));
+  }
+
+  children.addEventListener('dragover', e => { e.preventDefault(); children.classList.add('drag-over'); });
+  children.addEventListener('dragleave', e => { if (!children.contains(e.relatedTarget)) children.classList.remove('drag-over'); });
+  children.addEventListener('drop', e => {
+    e.preventDefault();
+    children.classList.remove('drag-over');
+    if (dragDeckId) moveDeckToFolder(dragDeckId, folder.id);
+    if (dragFolderId && dragFolderId !== folder.id) moveFolderIntoFolder(dragFolderId, folder.id);
+  });
+
+  block.appendChild(children);
+  return block;
+}
+
 function moveDeckToFolder(deckId, folderId) {
   const deck = data.decks.find(d => d.id === deckId);
   if (deck) { deck.folderId = folderId; save(data); renderHome(); }
+}
+
+function moveFolderIntoFolder(srcId, destId) {
+  if (srcId === destId) return;
+  if (destId && _isFolderDescendant(destId, srcId)) return; // prevent circular nesting
+  const folder = data.folders.find(f => f.id === srcId);
+  if (folder) { folder.parentFolderId = destId || null; save(data); renderHome(); }
+}
+
+// Returns true if folderId is inside (a descendant of) ancestorId
+function _isFolderDescendant(folderId, ancestorId) {
+  let current = data.folders.find(f => f.id === folderId);
+  while (current && current.parentFolderId) {
+    if (current.parentFolderId === ancestorId) return true;
+    current = data.folders.find(f => f.id === current.parentFolderId);
+  }
+  return false;
+}
+
+function _deleteFolder(folder) {
+  if (!confirm(`Delete folder "${folder.name}"? Decks and subfolders inside will move to root.`)) return;
+  // Move decks inside this folder to root
+  data.decks.forEach(d => { if (d.folderId === folder.id) d.folderId = null; });
+  // Move subfolders to root
+  data.folders.forEach(f => { if (f.parentFolderId === folder.id) f.parentFolderId = null; });
+  data.folders = data.folders.filter(f => f.id !== folder.id);
+  save(data); renderHome();
+}
+
+// Swipe-left-to-delete (touch only). Reveals a red Delete button at ~80px.
+function _attachSwipeDelete(el, onDelete) {
+  let startX = null, startY = null, swiping = false;
+  const THRESHOLD = 60;
+
+  el.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) return;
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    swiping = false;
+  }, { passive: true });
+
+  el.addEventListener('touchmove', e => {
+    if (startX === null) return;
+    const dx = e.touches[0].clientX - startX;
+    const dy = e.touches[0].clientY - startY;
+    if (!swiping && Math.abs(dy) > Math.abs(dx)) { startX = null; return; } // vertical scroll
+    swiping = true;
+    if (dx < 0) {
+      el.style.transform = `translateX(${Math.max(dx, -90)}px)`;
+      el.style.transition = 'none';
+    }
+  }, { passive: true });
+
+  el.addEventListener('touchend', e => {
+    if (!swiping || startX === null) return;
+    const dx = e.changedTouches[0].clientX - startX;
+    if (dx < -THRESHOLD) {
+      // Snap to reveal delete button
+      el.style.transition = 'transform 0.2s';
+      el.style.transform  = 'translateX(-80px)';
+      el._swipeOpen = true;
+    } else {
+      _closeSwipe(el);
+    }
+    startX = null;
+  }, { passive: true });
+
+  // Tap elsewhere closes open swipe
+  document.addEventListener('touchstart', e => {
+    if (el._swipeOpen && !el.contains(e.target) && !e.target.closest('.swipe-delete-btn')) {
+      _closeSwipe(el);
+    }
+  }, { passive: true });
+
+  // Inject delete button behind the element
+  el.style.position = 'relative';
+  el.style.overflow = 'visible';
+  const btn = document.createElement('button');
+  btn.className = 'swipe-delete-btn';
+  btn.textContent = 'Delete';
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    _closeSwipe(el);
+    onDelete();
+  });
+  el.appendChild(btn);
+}
+
+function _closeSwipe(el) {
+  el.style.transition = 'transform 0.2s';
+  el.style.transform  = '';
+  el._swipeOpen = false;
+}
+
+// Touch drag for folders (long-press to drag into another folder or root)
+function _attachFolderTouchDrag(header, block, folder) {
+  let _touchTimer = null, _touchGhost = null, _touchDragging = false, _lastDropTarget = null;
+
+  function _clearDragOver() {
+    document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+  }
+  function _dropTargetAt(x, y) {
+    if (_touchGhost) _touchGhost.style.display = 'none';
+    const el = document.elementFromPoint(x, y);
+    if (_touchGhost) _touchGhost.style.display = '';
+    if (!el) return null;
+    return el.closest('.folder-header, #root-drop-zone');
+  }
+
+  header.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    _touchTimer = setTimeout(() => {
+      _touchDragging = true;
+      dragFolderId = folder.id;
+      dragDeckId   = null;
+      block.classList.add('dragging');
+      const rect = header.getBoundingClientRect();
+      _touchGhost = header.cloneNode(true);
+      _touchGhost.style.cssText = `
+        position:fixed; z-index:9999; pointer-events:none;
+        width:${rect.width}px; opacity:0.85;
+        left:${rect.left}px; top:${rect.top}px;
+        box-shadow:0 8px 24px rgba(0,0,0,0.5);
+        border-radius:var(--radius);
+      `;
+      document.body.appendChild(_touchGhost);
+    }, 400);
+  }, { passive: true });
+
+  header.addEventListener('touchmove', e => {
+    clearTimeout(_touchTimer);
+    if (!_touchDragging) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    const rect = _touchGhost.getBoundingClientRect();
+    _touchGhost.style.left = (touch.clientX - rect.width / 2) + 'px';
+    _touchGhost.style.top  = (touch.clientY - 24) + 'px';
+    _clearDragOver();
+    const target = _dropTargetAt(touch.clientX, touch.clientY);
+    if (target) target.classList.add('drag-over');
+    _lastDropTarget = target;
+  }, { passive: false });
+
+  function _endTouchDrag() {
+    clearTimeout(_touchTimer);
+    if (_touchGhost) { _touchGhost.remove(); _touchGhost = null; }
+    if (_touchDragging && _lastDropTarget) {
+      const el = _lastDropTarget;
+      _clearDragOver();
+      if (el.id === 'root-drop-zone') {
+        moveFolderIntoFolder(dragFolderId, null);
+      } else {
+        const targetBlock = el.closest('.folder-block');
+        if (targetBlock) {
+          const targetId = targetBlock.dataset.folderId;
+          if (targetId && targetId !== folder.id) moveFolderIntoFolder(dragFolderId, targetId);
+        }
+      }
+    } else {
+      _clearDragOver();
+    }
+    block.classList.remove('dragging');
+    _touchDragging = false;
+    _lastDropTarget = null;
+    dragFolderId = null;
+  }
+
+  header.addEventListener('touchend',    _endTouchDrag, { passive: true });
+  header.addEventListener('touchcancel', _endTouchDrag, { passive: true });
 }
 
 function makeDeckItem(deck) {
@@ -363,7 +573,8 @@ function makeDeckItem(deck) {
     </div>
     <div class="deck-actions">
       <button data-rename="${deck.id}">Rename</button>
-      <button data-delete="${deck.id}">Delete</button>
+      ${deck.folderId ? '<button data-unparent>↑ Root</button>' : ''}
+      <button class="btn-delete-desktop" data-delete="${deck.id}">Delete</button>
     </div>`;
 
   item.querySelector('[data-open]').addEventListener('click', () => openDeck(deck.id));
@@ -374,16 +585,32 @@ function makeDeckItem(deck) {
       deck.name = value.trim(); save(data); renderHome();
     });
   });
+  if (deck.folderId) {
+    item.querySelector('[data-unparent]').addEventListener('click', e => {
+      e.stopPropagation();
+      moveDeckToFolder(deck.id, null);
+    });
+  }
   item.querySelector('[data-delete]').addEventListener('click', e => {
     e.stopPropagation();
     if (!confirm(`Delete "${deck.name}" and all its cards?`)) return;
     const deckIdToDelete = deck.id;
     _deleteStorageImagesForDeck(deck);
     data.decks = data.decks.filter(d => d.id !== deckIdToDelete);
-    // Explicitly remove the deck's own Firebase node (save() only writes current decks)
     if (fbUser && _fbReady) {
       console.log('[SnapStack] 🗑️  DELETE deck node:', deckIdToDelete);
       database.ref('users/' + fbUser.uid + '/decks/' + deckIdToDelete).remove().catch(console.error);
+    }
+    save(data); renderHome();
+  });
+
+  // Swipe-to-delete (mobile)
+  _attachSwipeDelete(item, () => {
+    if (!confirm(`Delete "${deck.name}" and all its cards?`)) return;
+    _deleteStorageImagesForDeck(deck);
+    data.decks = data.decks.filter(d => d.id !== deck.id);
+    if (fbUser && _fbReady) {
+      database.ref('users/' + fbUser.uid + '/decks/' + deck.id).remove().catch(console.error);
     }
     save(data); renderHome();
   });
@@ -554,7 +781,7 @@ $('btn-new-deck').addEventListener('click', () => {
 $('btn-new-folder').addEventListener('click', () => {
   openModal({ title: 'New Folder', inputPlaceholder: 'Folder name' }, value => {
     if (!value.trim()) return;
-    data.folders.push({ id: uid(), name: value.trim(), collapsed: false });
+    data.folders.push({ id: uid(), name: value.trim(), collapsed: false, parentFolderId: null });
     save(data); renderHome();
   });
 });
@@ -642,7 +869,16 @@ function renderDeck() {
       </div>`;
 
     item.querySelector('[data-edit]').addEventListener('click', () => {
+      // Snapshot Storage URLs before edit so we can delete any that are removed
+      const oldUrls = _extractStorageUrls(card.front + (card.back || ''));
       openCardModal('Edit Card', card.front, card.back, (f, b, t, tags) => {
+        const newUrls = _extractStorageUrls(f + (b || ''));
+        oldUrls.forEach(url => {
+          if (!newUrls.has(url)) {
+            storage.refFromURL(url).delete()
+              .catch(err => console.warn('[SnapStack] Could not delete replaced image:', err?.code || err?.message));
+          }
+        });
         card.front = f; card.back = b; card.type = t || 'normal'; card.tags = tags || [];
         save(data); renderDeck();
       }, false, card.type || 'normal', card.tags || []);
@@ -877,9 +1113,9 @@ function showStudyCard() {
     $('card-front-text').innerHTML = clozeToBlank(card.front);
     $('card-back-text').innerHTML  = clozeToReveal(card.front);
   } else {
-    $('card-front-text').innerHTML = card.front;
+    $('card-front-text').innerHTML = sanitizeCardHtml(card.front);
     $('card-back-text').innerHTML  =
-      `<div class="back-question">${card.front}</div><div class="back-divider"></div><div class="back-answer">${card.back}</div>`;
+      `<div class="back-question">${sanitizeCardHtml(card.front)}</div><div class="back-divider"></div><div class="back-answer">${sanitizeCardHtml(card.back)}</div>`;
   }
   const total = studyDone + studyQueue.length;
   $('study-progress').textContent = `${studyDone} / ${total} done · ${studyQueue.length} remaining`;
@@ -1337,6 +1573,18 @@ function _compressImage(file) {
   });
 }
 
+// Extract all Firebase Storage URLs from an HTML string. Returns a Set.
+function _extractStorageUrls(html) {
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  const urls = new Set();
+  tmp.querySelectorAll('img').forEach(img => {
+    const src = img.getAttribute('src') || '';
+    if (src.startsWith('https://firebasestorage.googleapis.com/')) urls.add(src);
+  });
+  return urls;
+}
+
 // Delete all Firebase Storage images referenced in a deck's cards.
 function _deleteStorageImagesForDeck(deck) {
   if (!fbUser || !deck.cards) return;
@@ -1597,14 +1845,57 @@ function htmlPreview(html) {
 
 // Cloze: replace {{word}} with black blank boxes (front of card)
 function clozeToBlank(html) {
-  return html.replace(/\{\{([^}]+)\}\}/g, (_, word) =>
+  return sanitizeCardHtml(html).replace(/\{\{([^}]+)\}\}/g, (_, word) =>
     `<span class="cloze-blank">${escHtml(word)}</span>`);
 }
 
 // Cloze: replace {{word}} with highlighted answer (back of card)
 function clozeToReveal(html) {
-  return html.replace(/\{\{([^}]+)\}\}/g, (_, word) =>
+  return sanitizeCardHtml(html).replace(/\{\{([^}]+)\}\}/g, (_, word) =>
     `<span class="cloze-answer">${escHtml(word)}</span>`);
+}
+
+// Sanitize card HTML: allow only <img src="https://firebasestorage..."> and <span>.
+// Everything else is text-escaped. Prevents XSS from imported/malicious decks.
+function sanitizeCardHtml(html) {
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  function clean(node) {
+    [...node.childNodes].forEach(child => {
+      if (child.nodeType === Node.TEXT_NODE) return; // plain text — safe
+      if (child.nodeType === Node.ELEMENT_NODE) {
+        const tag = child.tagName.toLowerCase();
+        if (tag === 'img') {
+          // Only allow firebasestorage or data: URIs (our own compressed blobs)
+          const src = child.getAttribute('src') || '';
+          if (!src.startsWith('https://firebasestorage.googleapis.com/') &&
+              !src.startsWith('data:image/')) {
+            child.remove();
+            return;
+          }
+          // Strip all attributes except src and class
+          [...child.attributes].forEach(attr => {
+            if (attr.name !== 'src' && attr.name !== 'class') child.removeAttribute(attr.name);
+          });
+          return;
+        }
+        if (tag === 'span' || tag === 'div' || tag === 'br') {
+          // Strip all event-handler attributes
+          [...child.attributes].forEach(attr => {
+            if (attr.name.startsWith('on')) child.removeAttribute(attr.name);
+          });
+          clean(child);
+          return;
+        }
+        // Any other element — replace with its text content
+        child.replaceWith(document.createTextNode(child.textContent));
+      } else {
+        child.remove(); // comments, processing instructions, etc.
+      }
+    });
+  }
+  clean(tmp);
+  return tmp.innerHTML;
 }
 
 // ── Init & Auth ───────────────────────────────────────────────────────────────
