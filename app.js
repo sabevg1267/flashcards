@@ -55,8 +55,21 @@ function save(d) {
 }
 save._flush = function() {
   if (!fbUser || !save._pendingData) return;
-  database.ref('users/' + fbUser.uid + '/data').set(save._pendingData).catch(console.error);
+  const d = save._pendingData;
   save._pendingData = null;
+  // Split into meta node + one node per deck so each deck gets its own 10 MB limit
+  const updates = {};
+  updates['users/' + fbUser.uid + '/meta'] = {
+    folders: d.folders || [],
+    lightWorkTotal: d.lightWorkTotal || 0,
+    lastModified: d.lastModified,
+  };
+  (d.decks || []).forEach(dk => {
+    dk.lastModified = d.lastModified;
+    updates['users/' + fbUser.uid + '/decks/' + dk.id] = dk;
+  });
+  console.log('[SnapStack] 💾 SAVE flush →', (d.decks || []).length, 'deck nodes + meta');
+  database.ref().update(updates).catch(console.error);
 };
 // Flush any pending debounced save on tab close
 window.addEventListener('beforeunload', () => {
@@ -77,46 +90,125 @@ let _fbListener = null;
 async function loadFromFirebase() {
   const local = loadLocal();
   try {
-    const snap = await database.ref('users/' + fbUser.uid + '/data').get();
-    let initial;
-    if (snap.exists()) {
-      initial = _sanitize(snap.val());
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(initial));
-    } else {
-      // First sign-in — push local data up.
-      await database.ref('users/' + fbUser.uid + '/data').set(local);
-      initial = local;
+    // ── Migration: move old single-blob to per-deck nodes ────────────────
+    const oldSnap = await database.ref('users/' + fbUser.uid + '/data').get();
+    if (oldSnap.exists()) {
+      const old = _sanitize(oldSnap.val());
+      console.log('[SnapStack] 🔄 MIGRATION: old single-blob detected');
+      console.log('[SnapStack]   decks to migrate:', old.decks.length, old.decks.map(d => `"${d.name}" (${d.cards.length} cards)`));
+      const ts = old.lastModified || Date.now();
+      const updates = {};
+      updates['users/' + fbUser.uid + '/meta'] = {
+        folders: old.folders || [],
+        lightWorkTotal: old.lightWorkTotal || 0,
+        lastModified: ts,
+      };
+      old.decks.forEach(dk => {
+        dk.lastModified = ts;
+        updates['users/' + fbUser.uid + '/decks/' + dk.id] = dk;
+        console.log('[SnapStack]   → writing deck node:', dk.id, `"${dk.name}"`);
+      });
+      updates['users/' + fbUser.uid + '/data'] = null; // remove old blob
+      await database.ref().update(updates);
+      console.log('[SnapStack] ✅ MIGRATION complete — old /data blob deleted');
+      _fbReady = true;
+      data = old;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(old));
+      _attachListeners();
+      return old;
     }
+
+    // ── Normal load: meta + per-deck nodes ───────────────────────────────
+    const [metaSnap, decksSnap] = await Promise.all([
+      database.ref('users/' + fbUser.uid + '/meta').get(),
+      database.ref('users/' + fbUser.uid + '/decks').get(),
+    ]);
+
+    let assembled;
+    if (!metaSnap.exists()) {
+      // First sign-in — push local data to Firebase in new format
+      console.log('[SnapStack] 🆕 FIRST SIGN-IN: pushing local data to Firebase');
+      console.log('[SnapStack]   local decks:', local.decks.length, local.decks.map(d => `"${d.name}" (${d.cards.length} cards)`));
+      const ts = local.lastModified || Date.now();
+      const updates = {};
+      updates['users/' + fbUser.uid + '/meta'] = {
+        folders: local.folders || [],
+        lightWorkTotal: local.lightWorkTotal || 0,
+        lastModified: ts,
+      };
+      local.decks.forEach(dk => {
+        dk.lastModified = ts;
+        updates['users/' + fbUser.uid + '/decks/' + dk.id] = dk;
+      });
+      await database.ref().update(updates);
+      assembled = local;
+      console.log('[SnapStack] ✅ First sign-in upload complete');
+    } else {
+      const meta = metaSnap.val();
+      const decksRaw = decksSnap.exists() ? decksSnap.val() : {};
+      const decks = Object.values(decksRaw).map(dk => {
+        dk.cards = toArray(dk.cards);
+        return dk;
+      });
+      assembled = _sanitize({
+        folders: toArray(meta.folders),
+        decks,
+        lightWorkTotal: meta.lightWorkTotal || 0,
+        lastModified: meta.lastModified || 0,
+      });
+      console.log('[SnapStack] 📦 LOADED (per-deck format):',
+        assembled.decks.length, 'decks,',
+        assembled.folders.length, 'folders,',
+        assembled.decks.reduce((s, d) => s + d.cards.length, 0), 'total cards');
+      assembled.decks.forEach(d =>
+        console.log(`[SnapStack]   deck "${d.name}": ${d.cards.length} cards, node size ~${
+          (new TextEncoder().encode(JSON.stringify(d)).length / 1024).toFixed(1)} KB`)
+      );
+    }
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(assembled));
     _fbReady = true;
-
-    // ── Realtime listener: keep data in sync across tabs / devices ────────
-    // Attaches AFTER the initial load so the first snapshot doesn't
-    // double-process what we already fetched above.
-    if (_fbListener) _fbListener(); // detach any previous listener
-    _fbListener = database.ref('users/' + fbUser.uid + '/data').on('value', snap => {
-      // Ignore if not yet ready (shouldn't happen, but be safe)
-      if (!_fbReady) return;
-      // Ignore if there's a pending local write in the debounce buffer
-      // (we'd just be reading back what we're about to write)
-      if (save._pendingData) return;
-      if (!snap.exists()) return;
-      const remote = _sanitize(snap.val());
-      // Only apply if remote is strictly newer than what we have locally
-      if ((remote.lastModified || 0) > (data.lastModified || 0)) {
-        data = remote;
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
-        // Re-render only if on the home screen to avoid interrupting study
-        if (views.home.classList.contains('active'))  renderHome();
-        if (views.deck.classList.contains('active'))  renderDeck();
-      }
-    }, err => console.warn('Firebase listener error:', err));
-
-    return initial;
+    data = assembled;
+    _attachListeners();
+    return assembled;
   } catch (err) {
     console.warn('Firebase unreachable, using localStorage:', err);
     _fbReady = true;
     return local;
   }
+}
+
+// Attach realtime listener to users/{uid} so any change from another device
+// triggers a re-render. Stores a proper detach function in _fbListener.
+function _attachListeners() {
+  if (_fbListener) _fbListener(); // detach any previous listener
+  const ref = database.ref('users/' + fbUser.uid);
+  const cb = ref.on('value', snap => {
+    if (!_fbReady || save._pendingData) return;
+    if (!snap.exists()) return;
+    const raw = snap.val();
+    if (!raw.meta) return; // pre-migration snapshot, ignore
+    const decksRaw = raw.decks || {};
+    const remoteDecks = Object.values(decksRaw).map(dk => {
+      dk.cards = toArray(dk.cards);
+      return dk;
+    });
+    const meta = raw.meta;
+    const remote = _sanitize({
+      folders: toArray(meta.folders),
+      decks: remoteDecks,
+      lightWorkTotal: meta.lightWorkTotal || 0,
+      lastModified: meta.lastModified || 0,
+    });
+    if ((remote.lastModified || 0) > (data.lastModified || 0)) {
+      console.log('[SnapStack] 🔁 REALTIME UPDATE from another device — re-rendering');
+      data = remote;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
+      if (views.home.classList.contains('active')) renderHome();
+      if (views.deck.classList.contains('active')) renderDeck();
+    }
+  }, err => console.warn('Firebase listener error:', err));
+  _fbListener = () => ref.off('value', cb);
 }
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -285,7 +377,14 @@ function makeDeckItem(deck) {
   item.querySelector('[data-delete]').addEventListener('click', e => {
     e.stopPropagation();
     if (!confirm(`Delete "${deck.name}" and all its cards?`)) return;
-    data.decks = data.decks.filter(d => d.id !== deck.id);
+    const deckIdToDelete = deck.id;
+    _deleteStorageImagesForDeck(deck);
+    data.decks = data.decks.filter(d => d.id !== deckIdToDelete);
+    // Explicitly remove the deck's own Firebase node (save() only writes current decks)
+    if (fbUser && _fbReady) {
+      console.log('[SnapStack] 🗑️  DELETE deck node:', deckIdToDelete);
+      database.ref('users/' + fbUser.uid + '/decks/' + deckIdToDelete).remove().catch(console.error);
+    }
     save(data); renderHome();
   });
 
@@ -418,7 +517,30 @@ function renderStats() {
     <div class="stat-item">
       <span class="stat-value">${formatCount(data.decks.length)}</span>
       <span class="stat-label">Decks</span>
+    </div>
+    <div class="stat-divider" id="storage-stat-divider" style="display:none"></div>
+    <div class="stat-item" id="storage-stat" style="display:none">
+      <span class="stat-value" id="storage-stat-value">...</span>
+      <span class="stat-label">of 1 GB used</span>
     </div>`;
+
+  // Async: fetch total Storage usage by listing all user image files
+  if (fbUser) {
+    storage.ref('users/' + fbUser.uid + '/images').listAll()
+      .then(res => Promise.all(res.items.map(item => item.getMetadata())))
+      .then(metas => {
+        const totalBytes = metas.reduce((s, m) => s + (m.size || 0), 0);
+        const MB = totalBytes / (1024 * 1024);
+        const display = MB >= 1 ? MB.toFixed(1) + ' MB' : (totalBytes / 1024).toFixed(0) + ' KB';
+        const el = $('storage-stat-value');
+        if (el) el.textContent = display;
+        const stat = $('storage-stat');
+        const div  = $('storage-stat-divider');
+        if (stat) stat.style.display = '';
+        if (div)  div.style.display  = '';
+      })
+      .catch(() => {}); // silently skip if Storage not set up
+  }
 }
 
 $('btn-new-deck').addEventListener('click', () => {
@@ -526,6 +648,7 @@ function renderDeck() {
       }, false, card.type || 'normal', card.tags || []);
     });
     item.querySelector('[data-del]').addEventListener('click', () => {
+      _deleteStorageImagesForDeck({ cards: [card] });
       deck.cards = deck.cards.filter(c => c.id !== card.id);
       save(data); renderDeck();
     });
@@ -1084,11 +1207,18 @@ function closeModal() {
   _cardCallback  = null;
 }
 
-function showCardToast() {
+function showCardToast(msg, isError) {
   const t = $('card-toast');
+  if (msg) t.textContent = msg;
+  else t.textContent = '\u2713 Card added';
+  t.style.background = isError ? '#c0392b' : '';
   t.classList.remove('hidden');
   clearTimeout(showCardToast._timer);
-  showCardToast._timer = setTimeout(() => t.classList.add('hidden'), 1800);
+  showCardToast._timer = setTimeout(() => {
+    t.classList.add('hidden');
+    t.style.background = '';
+    t.textContent = '\u2713 Card added';
+  }, isError ? 3500 : 1800);
 }
 
 function fieldIsEmpty(el) {
@@ -1178,14 +1308,73 @@ $('modal-input').addEventListener('keydown', e => {
 });
 
 // ── Image insertion ───────────────────────────────────────────────────────────
-// Tracks pending upload/conversion promises keyed by a numeric ID on the img
-// element so the confirm handler can await them before reading innerHTML.
 const _imageConversionMap = new Map(); // id → Promise
 let _imgConvId = 0;
 
-// 1×1 transparent GIF placeholder — inserted synchronously so fieldIsEmpty()
-// sees an <img> immediately while the upload/conversion runs in the background.
 const BLANK_IMG = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
+// Resize + compress image to max 800px wide, JPEG quality 0.75.
+// Returns a Promise<Blob>. Flashcards don't need full-resolution screenshots.
+function _compressImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      const MAX = 600;
+      let w = image.naturalWidth;
+      let h = image.naturalHeight;
+      if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
+      const canvas = document.createElement('canvas');
+      canvas.width  = w;
+      canvas.height = h;
+      canvas.getContext('2d').drawImage(image, 0, 0, w, h);
+      canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('toBlob failed')),
+        'image/jpeg', 0.60);
+    };
+    image.onerror = reject;
+    image.src = url;
+  });
+}
+
+// Delete all Firebase Storage images referenced in a deck's cards.
+function _deleteStorageImagesForDeck(deck) {
+  if (!fbUser || !deck.cards) return;
+  console.log('[SnapStack] 🗑️ Scanning deck for Storage images:', deck.name, '—', deck.cards.length, 'cards');
+  const tmp = document.createElement('div');
+  deck.cards.forEach(card => {
+    ['front', 'back', 'template'].forEach(field => {
+      if (!card[field]) return;
+      tmp.innerHTML = card[field];
+      tmp.querySelectorAll('img').forEach(img => {
+        const src = img.getAttribute('src') || '';
+        console.log('[SnapStack]   found img src:', src.slice(0, 80));
+        if (!src.startsWith('https://firebasestorage.googleapis.com/')) return;
+        console.log('[SnapStack]   deleting from Storage:', src.slice(0, 80));
+        try {
+          storage.refFromURL(src).delete()
+            .then(() => console.log('[SnapStack]   ✅ deleted'))
+            .catch(err => console.warn('[SnapStack] Could not delete Storage image:', err?.code || err?.message));
+        } catch (e) {
+          console.warn('[SnapStack] Invalid Storage URL skipped:', src);
+        }
+      });
+    });
+  });
+}
+
+function _uploadToStorage(img, file, convId) {
+  const ext  = 'jpg'; // always JPEG after compression
+  const path = `users/${fbUser.uid}/images/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+  const ref  = storage.ref(path);
+  return ref.put(file)
+    .then(snap => snap.ref.getDownloadURL())
+    .then(url => {
+      img.src = url;
+      img.classList.remove('img-uploading');
+      _imageConversionMap.delete(convId);
+    });
+}
 
 function _fallbackToBase64(img, file, convId) {
   return new Promise(resolve => {
@@ -1212,28 +1401,39 @@ function insertImageIntoField(field, file) {
   const convId = ++_imgConvId;
   img.dataset.convId = convId;
   img.src = BLANK_IMG;
-  img.classList.add('img-uploading'); // shows spinner overlay via CSS
+  img.classList.add('img-uploading');
 
-  let conversionDone;
+  const MAX_IMG_BYTES = 200 * 1024; // 200 KB hard limit
 
-  if (fbUser) {
-    // Upload to Firebase Storage — image lives outside the database
-    const ext  = (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
-    const path = `users/${fbUser.uid}/images/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-    const ref  = storage.ref(path);
-
-    conversionDone = ref.put(file)
-      .then(snap => snap.ref.getDownloadURL())
-      .then(url => {
-        img.src = url;
+  const conversionDone = _compressImage(file)
+    .then(compressed => {
+      if (compressed.size > MAX_IMG_BYTES) {
+        img.remove();
         img.classList.remove('img-uploading');
         _imageConversionMap.delete(convId);
-      })
-      .catch(() => _fallbackToBase64(img, file, convId)); // network error → base64
-  } else {
-    // Not signed in — store as base64 locally
-    conversionDone = _fallbackToBase64(img, file, convId);
-  }
+        showCardToast('Image too large (max 200 KB). Try a smaller screenshot.', true);
+        return;
+      }
+      if (fbUser) {
+        return _uploadToStorage(img, compressed, convId)
+          .catch(err => {
+            console.error('📸 Storage upload failed:', err?.code || err?.message || err);
+            img.remove();
+            img.classList.remove('img-uploading');
+            _imageConversionMap.delete(convId);
+            showCardToast('Image upload failed. Check Storage rules in Firebase.', true);
+          });
+      }
+      // Not signed in — base64 fallback (expected during offline/guest use)
+      return _fallbackToBase64(img, compressed, convId);
+    })
+    .catch(err => {
+      console.error('📸 Image compression failed:', err);
+      img.remove();
+      img.classList.remove('img-uploading');
+      _imageConversionMap.delete(convId);
+      showCardToast('Could not process image.', true);
+    });
 
   _imageConversionMap.set(convId, conversionDone);
 
