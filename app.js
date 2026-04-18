@@ -11,6 +11,7 @@ firebase.initializeApp({
 const auth     = firebase.auth();
 const database = firebase.database();
 let   fbUser   = null;
+let   _fbReady = false; // true only after Firebase data has been loaded into `data`
 
 // ── Storage ──────────────────────────────────────────────────────────────
 const STORAGE_KEY = 'anki_data';
@@ -42,7 +43,10 @@ function loadLocal() {
 function save(d) {
   d.lastModified = Date.now();
   localStorage.setItem(STORAGE_KEY, JSON.stringify(d));
-  if (!fbUser) return;
+  // Never write to Firebase until we have successfully loaded from it first.
+  // This prevents the initial empty `data = _sanitize({})` from overwriting
+  // real data in Firebase before the async load completes.
+  if (!fbUser || !_fbReady) return;
   // Debounce: batch rapid successive saves into one Firebase write
   clearTimeout(save._timer);
   save._pendingData = d;
@@ -70,19 +74,19 @@ async function loadFromFirebase() {
   try {
     const snap = await database.ref('users/' + fbUser.uid + '/data').get();
     if (snap.exists()) {
-      // Firebase is always the source of truth for signed-in users.
-      // The local copy is only a cache for offline use — never let it
-      // override what's in Firebase.
       const remote = _sanitize(snap.val());
       localStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
+      _fbReady = true; // Firebase data is now in `data` — safe to write back
       return remote;
     }
     // No Firebase data at all yet (first sign-in) — push local data up.
     await database.ref('users/' + fbUser.uid + '/data').set(local);
+    _fbReady = true;
     return local;
   } catch (err) {
     console.warn('Firebase unreachable, using localStorage:', err);
-    return local; // fall back gracefully — app still works offline
+    _fbReady = true; // allow saves even offline so user work isn't lost
+    return local;
   }
 }
 function uid() {
@@ -1274,6 +1278,7 @@ auth.onAuthStateChanged(async user => {
     renderHome();
   } else {
     fbUser = null;
+    _fbReady = false;
     $('auth-overlay').classList.remove('hidden');
   }
 });
