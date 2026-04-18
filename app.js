@@ -10,6 +10,7 @@ firebase.initializeApp({
 });
 const auth     = firebase.auth();
 const database = firebase.database();
+const storage  = firebase.storage();
 let   fbUser   = null;
 let   _fbReady = false; // true only after Firebase data has been loaded into `data`
 
@@ -448,6 +449,28 @@ function renderDeck() {
   showView('deck');
   $('deck-title').textContent = deck.name;
   $('no-cards').classList.toggle('hidden', deck.cards.length > 0);
+
+  // ── Data usage bar ────────────────────────────────────────────────────────
+  const LIMIT_BYTES = 10 * 1024 * 1024; // Firebase 10 MB node limit
+  const deckBytes   = new TextEncoder().encode(JSON.stringify(deck)).length;
+  const pct         = Math.min(100, (deckBytes / LIMIT_BYTES) * 100);
+  const bar  = $('deck-size-bar');
+  const fill = $('deck-size-fill');
+  const label = $('deck-size-label');
+
+  // Track available width for the fill bar (total bar width minus label space)
+  const BAR_TRACK = 120; // px — rough width allocated to the progress track
+  fill.style.width = Math.max(2, (pct / 100) * BAR_TRACK) + 'px';
+
+  function fmtBytes(b) {
+    if (b >= 1048576) return (b / 1048576).toFixed(2) + ' MB';
+    if (b >= 1024)    return (b / 1024).toFixed(1) + ' KB';
+    return b + ' B';
+  }
+  label.textContent = `${fmtBytes(deckBytes)} / 10 MB`;
+  bar.classList.remove('warn', 'danger');
+  if (pct >= 90)      bar.classList.add('danger');
+  else if (pct >= 60) bar.classList.add('warn');
 
   // Build tag filter bar from all tags in this deck
   const allTags = [...new Set(deck.cards.flatMap(c => c.tags || []))];
@@ -1155,35 +1178,63 @@ $('modal-input').addEventListener('keydown', e => {
 });
 
 // ── Image insertion ───────────────────────────────────────────────────────────
-// Tracks pending FileReader conversions keyed by a unique ID stored on the
-// img element so the confirm handler can await them before reading innerHTML.
+// Tracks pending upload/conversion promises keyed by a numeric ID on the img
+// element so the confirm handler can await them before reading innerHTML.
 const _imageConversionMap = new Map(); // id → Promise
 let _imgConvId = 0;
 
-// 1×1 transparent GIF — used as a synchronous placeholder so the field is
-// immediately non-empty while the real data URL is being read by FileReader.
+// 1×1 transparent GIF placeholder — inserted synchronously so fieldIsEmpty()
+// sees an <img> immediately while the upload/conversion runs in the background.
 const BLANK_IMG = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
+function _fallbackToBase64(img, file, convId) {
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = ev => {
+      img.src = ev.target.result;
+      img.classList.remove('img-uploading');
+      _imageConversionMap.delete(convId);
+      resolve();
+    };
+    reader.onerror = () => {
+      img.classList.remove('img-uploading');
+      _imageConversionMap.delete(convId);
+      resolve();
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function insertImageIntoField(field, file) {
-  if (!file) return; // getAsFile() can return null; bail out gracefully
+  if (!file) return;
 
   const img = document.createElement('img');
   const convId = ++_imgConvId;
   img.dataset.convId = convId;
-  // Insert placeholder immediately so fieldIsEmpty() sees an <img> right away
   img.src = BLANK_IMG;
+  img.classList.add('img-uploading'); // shows spinner overlay via CSS
 
-  // Read the real data URL in the background
-  const conversionDone = new Promise(resolve => {
-    const reader = new FileReader();
-    reader.onload = ev => {
-      img.src = ev.target.result;
-      _imageConversionMap.delete(convId);
-      resolve();
-    };
-    reader.onerror = () => { _imageConversionMap.delete(convId); resolve(); };
-    reader.readAsDataURL(file);
-  });
+  let conversionDone;
+
+  if (fbUser) {
+    // Upload to Firebase Storage — image lives outside the database
+    const ext  = (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
+    const path = `users/${fbUser.uid}/images/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+    const ref  = storage.ref(path);
+
+    conversionDone = ref.put(file)
+      .then(snap => snap.ref.getDownloadURL())
+      .then(url => {
+        img.src = url;
+        img.classList.remove('img-uploading');
+        _imageConversionMap.delete(convId);
+      })
+      .catch(() => _fallbackToBase64(img, file, convId)); // network error → base64
+  } else {
+    // Not signed in — store as base64 locally
+    conversionDone = _fallbackToBase64(img, file, convId);
+  }
+
   _imageConversionMap.set(convId, conversionDone);
 
   field.focus();

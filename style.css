@@ -259,6 +259,31 @@ button.back:hover { background: var(--surface2); }
 .stat-easy      { color: #27ae60; background: rgba(39,174,96,0.12);  }
 .stat-light     { color: #2980b9; background: rgba(41,128,185,0.12); }
 
+/* Deck size bar */
+#deck-size-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0 2px;
+  margin-bottom: 2px;
+}
+#deck-size-fill {
+  height: 4px;
+  border-radius: 4px;
+  background: var(--accent);
+  transition: width 0.3s, background 0.3s;
+  min-width: 2px;
+}
+#deck-size-label {
+  font-size: 0.72rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+#deck-size-bar.warn #deck-size-fill  { background: #e67e22; }
+#deck-size-bar.danger #deck-size-fill { background: #c0392b; }
+#deck-size-bar.warn  #deck-size-label { color: #e67e22; }
+#deck-size-bar.danger #deck-size-label { color: #c0392b; }
+
 /* FAB */
 .fab {
   position: fixed;
@@ -442,6 +467,14 @@ button.back:hover { background: var(--surface2); }
   border-radius: 4px;
   display: block;
   margin: 4px 0;
+  transition: opacity 0.2s;
+}
+/* Spinner overlay while image is uploading to Firebase Storage */
+.modal-field img.img-uploading {
+  opacity: 0.35;
+  position: relative;
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
 }
 .img-pick-btn {
   background: var(--surface2);
