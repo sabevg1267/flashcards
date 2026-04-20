@@ -24,12 +24,35 @@ body {
   justify-content: center;
 }
 
+#page-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  width: 100%;
+  max-width: 1060px;
+  padding: 0 16px;
+}
+
+#ad-sidebar {
+  width: 160px;
+  min-width: 160px;
+  position: sticky;
+  top: 20px;
+  padding-top: 20px;
+}
+
+@media (max-width: 860px) {
+  #ad-sidebar { display: none; }
+  #page-layout { padding: 0; }
+}
+
 .view {
   display: none;
   flex-direction: column;
   width: 100%;
   max-width: 560px;
-  padding: 0 16px 80px;
+  min-width: 0;
+  padding: 0 0 80px;
 }
 .view.active { display: flex; }
 
