@@ -1452,12 +1452,20 @@ button.primary:hover { background: var(--accent-hover); }
   /* Import modal textarea */
   #import-textarea { min-height: 140px; }
 
-  /* Hide desktop delete buttons — use swipe-to-delete instead */
-  .btn-delete-desktop { display: none !important; }
-  .swipe-delete-btn { display: flex; }
+  /* Use desktop delete buttons on mobile too — no swipe needed */
+  .btn-delete-desktop { display: inline-flex !important; }
+  .swipe-delete-btn { display: none !important; }
 
-  /* Deck/folder items need overflow visible for swipe-delete btn */
-  .deck-item, .folder-header { overflow: visible; }
+  /* Full-width deck and folder items */
+  .deck-item, .folder-header { overflow: hidden; width: 100%; box-sizing: border-box; }
+
+  /* Compact description on mobile so it doesn't eat screen space */
+  .app-description {
+    font-size: 0.72rem;
+    padding: 8px 12px;
+    margin-top: 8px;
+    line-height: 1.4;
+  }
 
   /* Modal max height so it doesn't overflow screen */
   #modal, #import-modal {
