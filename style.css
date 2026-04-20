@@ -20,39 +20,125 @@ body {
   background: var(--bg);
   color: var(--text);
   min-height: 100vh;
+  height: 100vh;
   display: flex;
   justify-content: center;
+  overflow: hidden;
 }
 
 #page-layout {
-  display: flex;
-  align-items: flex-start;
-  gap: 24px;
+  display: grid;
+  grid-template-columns: 160px minmax(0, 560px) 160px;
+  gap: 0 24px;
+  justify-content: center;
+  align-items: start;
   width: 100%;
   max-width: 1060px;
   padding: 0 16px;
+  box-sizing: border-box;
+  height: 100vh;
 }
 
 #ad-sidebar {
+  grid-column: 3;
+  grid-row: 1;
   width: 160px;
-  min-width: 160px;
   position: sticky;
   top: 20px;
   padding-top: 20px;
+  background: #1e1e1e;
+  border: 1px dashed #353535;
+  border-radius: var(--radius);
+  min-height: 600px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 20px 8px 8px;
+  color: #444;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  position: relative;
+}
+#ad-sidebar::before {
+  content: 'Ad';
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.ad-banner-study {
+  width: 100%;
+  margin-top: 24px;
+  text-align: center;
+  background: #1e1e1e;
+  border: 1px dashed #353535;
+  border-radius: var(--radius);
+  min-height: 90px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #444;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  position: relative;
+}
+.ad-banner-study::before {
+  content: 'Advertisement';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.ad-banner-modal {
+  width: 100%;
+  margin-top: 16px;
+  text-align: center;
+  background: #1e1e1e;
+  border: 1px dashed #353535;
+  border-radius: var(--radius);
+  min-height: 90px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #444;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  position: relative;
+}
+.ad-banner-modal::before {
+  content: 'Advertisement';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
 
 @media (max-width: 860px) {
+  #page-layout {
+    grid-template-columns: minmax(0, 560px);
+    padding: 0 12px;
+    height: 100vh;
+  }
+  .view { grid-column: 1; }
   #ad-sidebar { display: none; }
-  #page-layout { padding: 0; }
 }
 
 .view {
   display: none;
   flex-direction: column;
+  grid-column: 2;
   width: 100%;
-  max-width: 560px;
   min-width: 0;
-  padding: 0 0 80px;
+  height: 100vh;
+  padding-bottom: 0;
 }
 .view.active { display: flex; }
 
@@ -115,7 +201,17 @@ button.back:hover { background: var(--surface2); }
 #btn-export:hover { background: var(--border); }
 
 /* Deck list */
-#deck-list { display: flex; flex-direction: column; gap: 6px; }
+#deck-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 8px;
+  /* scrollbar styling */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
 
 /* ── Folder ── */
 .folder-block { display: flex; flex-direction: column; }
@@ -214,6 +310,10 @@ button.back:hover { background: var(--surface2); }
 .deck-item .deck-name {
   font-size: 1rem;
   font-weight: 700;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .deck-item .deck-meta {
   font-size: 0.78rem;
@@ -223,6 +323,7 @@ button.back:hover { background: var(--surface2); }
 .deck-actions {
   display: flex;
   gap: 6px;
+  flex-shrink: 0;
 }
 .deck-actions button, .card-actions button {
   background: none;
@@ -237,7 +338,16 @@ button.back:hover { background: var(--surface2); }
 }
 
 /* Card list */
-#card-list { display: flex; flex-direction: column; gap: 8px; }
+#card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 80px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
 
 .card-item {
   background: var(--surface);
@@ -548,6 +658,31 @@ button.back:hover { background: var(--surface2); }
   padding: 4px 0;
 }
 
+/* Global rate-limit toast */
+#global-toast {
+  position: fixed;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: #c0392b;
+  border: none;
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 16px 32px;
+  border-radius: 14px;
+  box-shadow: 0 6px 28px rgba(0,0,0,0.6);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s, transform 0.2s;
+  white-space: nowrap;
+  z-index: 9999;
+}
+#global-toast.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
 /* Card type toggle */
 #card-type-toggle {
   display: flex;
@@ -722,6 +857,142 @@ button.primary:hover { background: var(--accent-hover); }
 }
 
 .muted { color: var(--muted); font-size: 0.875rem; margin-top: 12px; }
+.app-description {
+  margin-top: 32px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.6;
+  text-align: center;
+}
+.app-description strong { color: var(--text); }
+
+/* ─── Math rendering ───────────────────────────────────────────────────── */
+/* Fraction */
+.math-frac {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  vertical-align: middle;
+  margin: 0 3px;
+  line-height: 1.2;
+}
+.math-num {
+  border-bottom: 1.5px solid currentColor;
+  padding: 1px 5px;
+  font-size: 0.82em;
+  text-align: center;
+}
+.math-den {
+  padding: 1px 5px;
+  font-size: 0.82em;
+  text-align: center;
+}
+
+/* Summation */
+.math-sum {
+  display: inline-grid;
+  grid-template-columns: auto;
+  grid-template-rows: auto auto auto;
+  align-items: center;
+  vertical-align: middle;
+  margin: 0 2px;
+}
+.math-top {
+  grid-row: 1;
+  font-size: 0.62em;
+  text-align: center;
+  color: var(--muted);
+  line-height: 1.2;
+}
+.math-sigma {
+  grid-row: 2;
+  font-size: 1.5em;
+  line-height: 1;
+  text-align: center;
+}
+.math-bot {
+  grid-row: 3;
+  font-size: 0.62em;
+  text-align: center;
+  color: var(--muted);
+  line-height: 1.2;
+}
+.math-sum-expr {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 3px;
+}
+
+/* Square root */
+.math-sqrt {
+  display: inline;
+  font-size: 1.05em;
+}
+.math-sqrt-inner {
+  border-top: 1.5px solid currentColor;
+  padding: 1px 4px 1px 2px;
+  margin-left: 1px;
+  font-size: 0.9em;
+}
+
+/* Live math preview below input fields */
+.math-preview {
+  display: none;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 0.9rem;
+  color: var(--text);
+  margin-bottom: 8px;
+  min-height: 34px;
+  line-height: 1.6;
+}
+.math-preview.has-content { display: block; }
+
+/* Math tips button */
+.math-tips-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-top: 10px;
+  width: 100%;
+  text-align: left;
+}
+.math-tips-btn:hover { background: var(--surface2); color: var(--text); }
+
+/* Math tips panel */
+#math-tips-panel {
+  display: none;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-top: 6px;
+  font-size: 0.78rem;
+}
+#math-tips-panel.open { display: block; }
+#math-tips-panel table { width: 100%; border-collapse: collapse; }
+#math-tips-panel td {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+#math-tips-panel td:first-child {
+  font-family: 'Courier New', monospace;
+  color: var(--accent);
+  white-space: nowrap;
+  width: 40%;
+}
+#math-tips-panel tr:last-child td { border-bottom: none; }
 
 /* ── Tags ────────────────────────────────────────────────────────────────────*/
 #row-tags { display: flex; flex-direction: column; gap: 6px; }
@@ -905,6 +1176,20 @@ button.primary:hover { background: var(--accent-hover); }
   flex-shrink: 0;
 }
 .signout-btn:hover { background: var(--surface2); color: var(--text); }
+
+.upgrade-btn {
+  background: linear-gradient(135deg, #f6c90e, #f0a500);
+  color: #1a1a1a;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+}
+.upgrade-btn:hover { opacity: 0.9; }
 
 .hidden { display: none !important; }
 

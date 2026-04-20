@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=21" />
+  <link rel="stylesheet" href="style.css?v=27" />
   <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4558933116271506" crossorigin="anonymous"></script>
 </head>
 <body>
@@ -22,12 +22,16 @@
     <header>
       <h1>SnapStack</h1>
       <span id="sync-status" class="sync-status"></span>
+      <button id="btn-upgrade" class="upgrade-btn" title="Remove ads">⭐ Pro</button>
       <button id="btn-new-folder">+ Folder</button>
       <button id="btn-new-deck">+ Deck</button>
       <button id="btn-signout" class="signout-btn" title="Sign out">↩</button>
     </header>
     <div id="deck-list"></div>
     <p id="no-decks" class="muted">No decks yet. Create one to get started.</p>
+    <p class="app-description">
+      SnapStack is a <strong>free</strong>, cross-platform flashcard app that works on your phone, tablet, and desktop — no install needed. Ads help keep it free for everyone. Want an ad-free experience? Upgrade to <strong>Pro</strong> above.
+    </p>
   </div>
 
   <!-- Deck view: card list -->
@@ -85,6 +89,15 @@
     <div id="study-done" class="hidden">
       <p>Session complete!</p>
       <button id="btn-finish-study">Back to Deck</button>
+    </div>
+    <div class="ad-banner-study">
+      <ins class="adsbygoogle"
+           style="display:block"
+           data-ad-client="ca-pub-4558933116271506"
+           data-ad-slot="4238228132"
+           data-ad-format="horizontal"
+           data-full-width-responsive="true"></ins>
+      <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
     </div>
   </div>
 
@@ -150,6 +163,37 @@
         <button id="modal-done" class="hidden">Done</button>
         <button id="modal-confirm" class="primary">Save</button>
       </div>
+
+      <!-- Math Tips -->
+      <button id="btn-math-tips" class="math-tips-btn">ƒ Math Tips</button>
+      <div id="math-tips-panel">
+        <table>
+          <tr><td>a^2</td><td>Superscript → a²</td></tr>
+          <tr><td>a_2</td><td>Subscript → a₂</td></tr>
+          <tr><td>frac(a,b)</td><td>Fraction → a over b</td></tr>
+          <tr><td>sqrt(x)</td><td>Square root → √x</td></tr>
+          <tr><td>sum(i=1,n,i^2)</td><td>Summation with limits</td></tr>
+          <tr><td>pi / theta / alpha</td><td>π θ α</td></tr>
+          <tr><td>beta / gamma / delta</td><td>β γ δ</td></tr>
+          <tr><td>lambda / mu / sigma</td><td>λ μ σ</td></tr>
+          <tr><td>Delta / Sigma</td><td>Δ Σ</td></tr>
+          <tr><td>inf</td><td>∞</td></tr>
+          <tr><td>&gt;= / &lt;= / !=</td><td>≥ ≤ ≠</td></tr>
+          <tr><td>-&gt;</td><td>→</td></tr>
+          <tr><td>+-</td><td>±</td></tr>
+          <tr><td>times / xx</td><td>×</td></tr>
+          <tr><td>div</td><td>÷</td></tr>
+        </table>
+      </div>
+      <div class="ad-banner-modal">
+        <ins class="adsbygoogle"
+             style="display:block"
+             data-ad-client="ca-pub-4558933116271506"
+             data-ad-slot="4238228132"
+             data-ad-format="horizontal"
+             data-full-width-responsive="true"></ins>
+        <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+      </div>
     </div>
   </div>
 
@@ -191,6 +235,6 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-analytics-compat.js"></script>
-  <script src="app.js?v=22"></script>
+  <script src="app.js?v=27"></script>
 </body>
 </html>

@@ -15,6 +15,7 @@ const storage   = firebase.storage();
 const analytics = firebase.analytics();
 let   fbUser   = null;
 let   _fbReady = false; // true only after Firebase data has been loaded into `data`
+let   userTier = 'free'; // 'free' | 'pro' — set after sign-in
 
 // ── Storage ──────────────────────────────────────────────────────────────
 const STORAGE_KEY = 'anki_data';
@@ -43,34 +44,55 @@ function loadLocal() {
   catch { return _sanitize({}); }
 }
 
-function save(d) {
+function save(d, dirtyDeckId = null) {
   d.lastModified = Date.now();
   localStorage.setItem(STORAGE_KEY, JSON.stringify(d));
   // Never write to Firebase until we have successfully loaded from it first.
   // This prevents the initial empty `data = _sanitize({})` from overwriting
   // real data in Firebase before the async load completes.
   if (!fbUser || !_fbReady) return;
+  // Track which decks are dirty.
+  // null means ALL decks (structural change — safe fallback).
+  // A Set means only those specific decks need to be written.
+  if (dirtyDeckId) {
+    if (save._dirtyDecks === null) {
+      // A previous call already flagged all decks — keep it that way.
+    } else {
+      if (!save._dirtyDecks) save._dirtyDecks = new Set();
+      save._dirtyDecks.add(dirtyDeckId);
+    }
+  } else {
+    save._dirtyDecks = null; // all decks
+  }
   // Debounce: batch rapid successive saves into one Firebase write
   clearTimeout(save._timer);
   save._pendingData = d;
   save._timer = setTimeout(save._flush, 2000);
 }
+save._dirtyDecks = null;
 save._flush = function() {
   if (!fbUser || !save._pendingData) return;
   const d = save._pendingData;
+  const dirtyDecks = save._dirtyDecks; // Set<id> | null (null = all)
   save._pendingData = null;
-  // Split into meta node + one node per deck so each deck gets its own 10 MB limit
+  save._dirtyDecks = null;
+  // Meta is always written (lastModified, folders, lightWorkTotal)
   const updates = {};
   updates['users/' + fbUser.uid + '/meta'] = {
     folders: d.folders || [],
     lightWorkTotal: d.lightWorkTotal || 0,
     lastModified: d.lastModified,
   };
-  (d.decks || []).forEach(dk => {
+  // Only write decks that actually changed
+  const allDecks = d.decks || [];
+  const decksToWrite = dirtyDecks
+    ? allDecks.filter(dk => dirtyDecks.has(dk.id))
+    : allDecks;
+  decksToWrite.forEach(dk => {
     dk.lastModified = d.lastModified;
     updates['users/' + fbUser.uid + '/decks/' + dk.id] = dk;
   });
-  console.log('[SnapStack] 💾 SAVE flush →', (d.decks || []).length, 'deck nodes + meta');
+  console.log('[SnapStack] 💾 SAVE flush →', decksToWrite.length, '/', allDecks.length, 'deck(s) + meta');
   database.ref().update(updates).catch(console.error);
 };
 // Flush any pending debounced save on tab close
@@ -233,6 +255,33 @@ function _attachListeners() {
 }
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+// ── Rate limiter (1 create per 10 s) ─────────────────────────────────────────
+const RATE_LIMIT_MS = 10_000;
+let _lastCreateTime = 0;
+
+function canCreate() {
+  return Date.now() - _lastCreateTime >= RATE_LIMIT_MS;
+}
+function markCreated() {
+  _lastCreateTime = Date.now();
+}
+function showRateLimitToast() {
+  const remaining = Math.ceil((RATE_LIMIT_MS - (Date.now() - _lastCreateTime)) / 1000);
+  showGlobalToast(`⏳ Please wait ${remaining}s before creating another.`);
+}
+function showGlobalToast(msg) {
+  let el = document.getElementById('global-toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'global-toast';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.classList.add('visible');
+  clearTimeout(showGlobalToast._t);
+  showGlobalToast._t = setTimeout(() => el.classList.remove('visible'), 3000);
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -406,7 +455,7 @@ function renderFolderBlock(folder) {
 
 function moveDeckToFolder(deckId, folderId) {
   const deck = data.decks.find(d => d.id === deckId);
-  if (deck) { deck.folderId = folderId; save(data); renderHome(); }
+  if (deck) { deck.folderId = folderId; save(data, deckId); renderHome(); }
 }
 
 function moveFolderIntoFolder(srcId, destId) {
@@ -603,7 +652,7 @@ function makeDeckItem(deck) {
     e.stopPropagation();
     openModal({ title: 'Rename Deck', inputPlaceholder: 'Deck name', inputValue: deck.name }, value => {
       if (!value.trim()) return;
-      deck.name = value.trim(); save(data); renderHome();
+      deck.name = value.trim(); save(data, deck.id); renderHome();
     });
   });
   if (deck.folderId) {
@@ -792,10 +841,13 @@ function renderStats() {
 }
 
 $('btn-new-deck').addEventListener('click', () => {
+  if (!canCreate()) { showRateLimitToast(); return; }
   openModal({ title: 'New Deck', inputPlaceholder: 'Deck name' }, value => {
     if (!value.trim()) return;
-    data.decks.push({ id: uid(), name: value.trim(), cards: [], folderId: null });
-    save(data); renderHome();
+    markCreated();
+    const newDeck = { id: uid(), name: value.trim(), cards: [], folderId: null };
+    data.decks.push(newDeck);
+    save(data, newDeck.id); renderHome();
   });
 });
 
@@ -901,13 +953,13 @@ function renderDeck() {
           }
         });
         card.front = f; card.back = b; card.type = t || 'normal'; card.tags = tags || [];
-        save(data); renderDeck();
+        save(data, currentDeckId); renderDeck();
       }, false, card.type || 'normal', card.tags || []);
     });
     item.querySelector('[data-del]').addEventListener('click', () => {
       _deleteStorageImagesForDeck({ cards: [card] });
       deck.cards = deck.cards.filter(c => c.id !== card.id);
-      save(data); renderDeck();
+      save(data, currentDeckId); renderDeck();
     });
 
     list.appendChild(item);
@@ -958,9 +1010,12 @@ $('btn-export').addEventListener('click', () => {
 });
 
 $('btn-new-card').addEventListener('click', () => {
+  if (!canCreate()) { showRateLimitToast(); return; }
   openCardModal('Add Cards', '', '', (front, back, type, tags) => {
+    if (!canCreate()) { showRateLimitToast(); return; }
+    markCreated();
     getDeck().cards.push({ id: uid(), front, back, type: type || 'normal', tags: tags || [], due: Date.now(), interval: 1, ease: 2.5 });
-    save(data); renderDeck();
+    save(data, currentDeckId); renderDeck();
   }, true /* keepOpen */);
 });
 
@@ -1134,9 +1189,9 @@ function showStudyCard() {
     $('card-front-text').innerHTML = clozeToBlank(card.front);
     $('card-back-text').innerHTML  = clozeToReveal(card.front);
   } else {
-    $('card-front-text').innerHTML = sanitizeCardHtml(card.front);
+    $('card-front-text').innerHTML = applyMathToHtml(sanitizeCardHtml(card.front));
     $('card-back-text').innerHTML  =
-      `<div class="back-question">${sanitizeCardHtml(card.front)}</div><div class="back-divider"></div><div class="back-answer">${sanitizeCardHtml(card.back)}</div>`;
+      `<div class="back-question">${applyMathToHtml(sanitizeCardHtml(card.front))}</div><div class="back-divider"></div><div class="back-answer">${applyMathToHtml(sanitizeCardHtml(card.back))}</div>`;
   }
   const total = studyDone + studyQueue.length;
   $('study-progress').textContent = `${studyDone} / ${total} done · ${studyQueue.length} remaining`;
@@ -1195,10 +1250,8 @@ function rateCard(rating) {
     }
     studyDone++;
     data.lightWorkTotal++;
-    // Use save() so lastModified is updated and the full correct state
-    // is written to Firebase. fbPatch with numeric indices is unsafe after
-    // deletions because toArray() re-compacts indices that Firebase does not.
-    save(data);
+    // Only write the deck being studied — not all decks.
+    save(data, currentDeckId);
     burstConfetti();
     playSuccessSound();
     // If this was the last card, delay the done screen so confetti is visible
@@ -1214,7 +1267,7 @@ function rateCard(rating) {
     if (dbCard) {
       if (!dbCard.ratings) dbCard.ratings = [0,0,0,0];
       dbCard.ratings[rating]++;
-      save(data);
+      save(data, currentDeckId);
     }
     const pos = Math.min(REINSERT_POS[rating], studyQueue.length);
     studyQueue.splice(pos, 0, card);
@@ -1463,6 +1516,15 @@ function closeModal() {
   $('modal-overlay').classList.add('hidden');
   _modalCallback = null;
   _cardCallback  = null;
+  // revert any rendered math fields back to raw so they're clean next open
+  ['modal-front','modal-back'].forEach(id => {
+    const el = $(id);
+    if (el && el.dataset.mathRaw) { el.textContent = el.dataset.mathRaw; el.dataset.mathRaw = ''; }
+  });
+  const panel = $('math-tips-panel');
+  const btn   = $('btn-math-tips');
+  if (panel) panel.classList.remove('open');
+  if (btn)   btn.textContent = 'ƒ Math Tips';
 }
 
 function showCardToast(msg, isError) {
@@ -1510,12 +1572,14 @@ $('modal-confirm').addEventListener('click', async () => {
     } else {
       if (fieldIsEmpty($('modal-front')) || fieldIsEmpty($('modal-back'))) return;
       await waitForPendingImages($('modal-front'), $('modal-back'));
-      const front = $('modal-front').innerHTML.trim();
-      const back  = $('modal-back').innerHTML.trim();
+      const front = mathFieldGetRaw($('modal-front'));
+      const back  = mathFieldGetRaw($('modal-back'));
       _cardCallback(front, back, 'normal', [..._pendingTags]);
       if (_isNewCard) {
         $('modal-front').innerHTML = '';
+        $('modal-front').dataset.mathRaw = '';
         $('modal-back').innerHTML  = '';
+        $('modal-back').dataset.mathRaw  = '';
         _pendingTags = [];
         renderModalTags();
         showCardToast();
@@ -1533,6 +1597,48 @@ $('modal-confirm').addEventListener('click', async () => {
 
 $('modal-cancel').addEventListener('click', closeModal);
 
+// ── Math inline render (blur = render, focus = raw text) ──────────────────────
+// Returns the raw user text from a field (strips rendered state if present)
+function mathFieldGetRaw(field) {
+  return field.dataset.mathRaw !== undefined && field.dataset.mathRaw !== ''
+    ? field.dataset.mathRaw
+    : field.innerHTML.trim();
+}
+
+function mathFieldRender(field) {
+  if (field.querySelector('img')) return; // skip if images present
+  const raw = field.textContent;
+  if (!raw.trim()) return;
+  field.dataset.mathRaw = raw;
+  field.innerHTML = renderMath(raw);
+}
+
+function mathFieldRevert(field) {
+  const raw = field.dataset.mathRaw;
+  if (!raw) return;
+  field.textContent = raw;
+  field.dataset.mathRaw = '';
+  // move cursor to end
+  const sel = window.getSelection();
+  const range = document.createRange();
+  range.selectNodeContents(field);
+  range.collapse(false);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+$('modal-front').addEventListener('blur',  () => mathFieldRender($('modal-front')));
+$('modal-front').addEventListener('focus', () => mathFieldRevert($('modal-front')));
+$('modal-back').addEventListener('blur',   () => mathFieldRender($('modal-back')));
+$('modal-back').addEventListener('focus',  () => mathFieldRevert($('modal-back')));
+
+// ── Math tips toggle ──────────────────────────────────────────────────────────
+$('btn-math-tips').addEventListener('click', () => {
+  $('math-tips-panel').classList.toggle('open');
+  $('btn-math-tips').textContent = $('math-tips-panel').classList.contains('open')
+    ? '✕ Hide Tips' : 'ƒ Math Tips';
+});
+
 // "Done" should save the current card (if filled) before closing,
 // so clicking Done without first clicking "Add Card" doesn't silently lose work.
 $('modal-done').addEventListener('click', async () => {
@@ -1548,8 +1654,8 @@ $('modal-done').addEventListener('click', async () => {
       const backEmpty  = fieldIsEmpty($('modal-back'));
       if (!frontEmpty && !backEmpty) {
         await waitForPendingImages($('modal-front'), $('modal-back'));
-        const front = $('modal-front').innerHTML.trim();
-        const back  = $('modal-back').innerHTML.trim();
+        const front = mathFieldGetRaw($('modal-front'));
+        const back  = mathFieldGetRaw($('modal-back'));
         _cardCallback(front, back, 'normal', [..._pendingTags]);
       }
     }
@@ -1854,6 +1960,94 @@ function escHtml(str) {
   return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ─── Math rendering ──────────────────────────────────────────────────────────
+// Converts shorthand like a^2, frac(1,2), sum(i=1,n,expr), sqrt(x),
+// Greek letters, and operator symbols into rendered HTML.
+
+const _MATH_SYMBOLS = [
+  [/\bDelta\b/g,'Δ'],[/\bSigma\b/g,'Σ'],[/\btheta\b/g,'θ'],
+  [/\balpha\b/g,'α'],[/\bbeta\b/g,'β'],[/\bgamma\b/g,'γ'],
+  [/\bdelta\b/g,'δ'],[/\blambda\b/g,'λ'],[/\bmu\b/g,'μ'],
+  [/\bsigma\b/g,'σ'],[/\bpi\b/g,'π'],[/\binf\b/g,'∞'],
+  [/>=/g,'≥'],[/<=/g,'≤'],[/!=/g,'≠'],[/->/g,'→'],
+  [/\+-/g,'±'],[/\b(times|xx)\b/g,'×'],[/\bdiv\b/g,'÷'],
+];
+
+// Renders math inside sum/frac/sqrt arguments (symbols + sup/sub only)
+function _innerMath(text) {
+  for (const [p,r] of _MATH_SYMBOLS) text = text.replace(p, r);
+  text = text.replace(/\^(\{[^}]*\}|[^\s^_,(){}<>\x00]+)/g, (_,e) =>
+    `<sup>${escHtml(e.startsWith('{') ? e.slice(1,-1) : e)}</sup>`);
+  text = text.replace(/_(\{[^}]*\}|[^\s^_,(){}<>\x00]+)/g, (_,e) =>
+    `<sub>${escHtml(e.startsWith('{') ? e.slice(1,-1) : e)}</sub>`);
+  // Escape remaining plain-text parts (split on already-inserted tags)
+  return text.split(/(<[^>]*>)/).map((p,i) => i%2===0 ? escHtml(p) : p).join('');
+}
+
+function renderMath(plainText) {
+  let text = plainText;
+
+  // Step 1 — pure symbol swaps (text → Unicode, no HTML produced)
+  for (const [p,r] of _MATH_SYMBOLS) text = text.replace(p, r);
+
+  // Step 2 — HTML-producing patterns; collect fragments via placeholder tokens
+  const _frags = [];
+  const _mark  = html => { _frags.push(html); return `\x00${_frags.length-1}\x00`; };
+
+  // sum(lower, upper, expr)
+  text = text.replace(/sum\(([^,)]+),([^,)]+),([^)]+)\)/g, (_,lo,hi,expr) =>
+    _mark(
+      `<span class="math-sum">` +
+        `<span class="math-top">${_innerMath(hi)}</span>` +
+        `<span class="math-sigma">Σ</span>` +
+        `<span class="math-bot">${_innerMath(lo)}</span>` +
+      `</span><span class="math-sum-expr">${_innerMath(expr)}</span>`
+    ));
+
+  // frac(num, den)
+  text = text.replace(/frac\(([^,)]+),([^)]+)\)/g, (_,num,den) =>
+    _mark(
+      `<span class="math-frac">` +
+        `<span class="math-num">${_innerMath(num)}</span>` +
+        `<span class="math-den">${_innerMath(den)}</span>` +
+      `</span>`
+    ));
+
+  // sqrt(x)
+  text = text.replace(/sqrt\(([^)]+)\)/g, (_,x) =>
+    _mark(`<span class="math-sqrt">√<span class="math-sqrt-inner">${_innerMath(x)}</span></span>`));
+
+  // superscript: x^2 or x^{abc}
+  text = text.replace(/\^(\{[^}]*\}|[^\s^_,(){}\x00<>]+)/g, (_,e) =>
+    _mark(`<sup>${escHtml(e.startsWith('{') ? e.slice(1,-1) : e)}</sup>`));
+
+  // subscript: x_2 or x_{abc}
+  text = text.replace(/_(\{[^}]*\}|[^\s^_,(){}\x00<>]+)/g, (_,e) =>
+    _mark(`<sub>${escHtml(e.startsWith('{') ? e.slice(1,-1) : e)}</sub>`));
+
+  // Step 3 — restore HTML fragments; escape all remaining plain-text segments
+  return text.replace(/\x00(\d+)\x00|([^\x00]+)/g, (_,idx,seg) =>
+    idx !== undefined ? _frags[+idx] : escHtml(seg));
+}
+
+// Walks sanitized card HTML and applies renderMath to every text node
+function applyMathToHtml(html) {
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  function walk(node) {
+    if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
+      const rendered = renderMath(node.textContent);
+      const wrap = document.createElement('span');
+      wrap.innerHTML = rendered;
+      node.parentNode.replaceChild(wrap, node);
+    } else if (node.nodeType === Node.ELEMENT_NODE && node.tagName.toLowerCase() !== 'img') {
+      [...node.childNodes].forEach(walk);
+    }
+  }
+  [...div.childNodes].forEach(walk);
+  return div.innerHTML;
+}
+
 // Extract plain-text preview from stored HTML (may contain <img> tags)
 function htmlPreview(html) {
   const d = document.createElement('div');
@@ -1933,12 +2127,35 @@ $('btn-signout').addEventListener('click', () => {
   if (confirm('Sign out?')) auth.signOut();
 });
 
+// ── Tier / Pro ────────────────────────────────────────────────────────────────
+// LemonSqueezy checkout URL — replace with your actual product link after setup
+const LEMON_CHECKOUT_URL = 'https://snapstack1267.lemonsqueezy.com/checkout/buy/db658ca6-02bd-464c-b63b-bafa05da9bfa';
+
+function applyTier() {
+  const isPro = userTier === 'pro';
+  // Hide all ad placements for pro users
+  document.querySelectorAll('.ad-banner-study, .ad-banner-modal, #ad-sidebar').forEach(el => {
+    el.style.display = isPro ? 'none' : '';
+  });
+  // Show/hide upgrade button
+  const btn = $('btn-upgrade');
+  if (btn) btn.style.display = isPro ? 'none' : '';
+}
+
+$('btn-upgrade').addEventListener('click', () => {
+  window.open(LEMON_CHECKOUT_URL + '?checkout[custom][uid]=' + encodeURIComponent(fbUser?.uid || ''), '_blank');
+});
+
 auth.onAuthStateChanged(async user => {
   if (user) {
     fbUser = user;
     const name = (user.displayName || user.email || '').split(' ')[0];
     $('sync-status').textContent = name;
     $('auth-overlay').classList.add('hidden');
+    // Fetch tier from Firebase
+    const tierSnap = await database.ref('users/' + user.uid + '/meta/tier').get();
+    userTier = (tierSnap.exists() && tierSnap.val() === 'pro') ? 'pro' : 'free';
+    applyTier();
     // Always fetch from Firebase — never trust the local cache
     $('deck-list').innerHTML = '<p class="muted" style="padding:16px">Loading…</p>';
     $('no-decks').classList.add('hidden');
@@ -1946,6 +2163,7 @@ auth.onAuthStateChanged(async user => {
     renderHome();
   } else {
     fbUser = null;
+    userTier = 'free';
     _fbReady = false;
     if (_fbListener) { _fbListener(); _fbListener = null; }
     $('auth-overlay').classList.remove('hidden');
