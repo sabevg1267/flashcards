@@ -121,6 +121,17 @@ async function loadFromFirebase() {
     }
 
     // ── Normal load: meta + per-deck nodes ───────────────────────────────
+    // First check only the lightweight lastModified timestamp. If local data
+    // is already current, skip downloading all deck nodes (saves bandwidth).
+    const tsSnap = await database.ref('users/' + fbUser.uid + '/meta/lastModified').get();
+    if (tsSnap.exists() && local.lastModified && tsSnap.val() <= local.lastModified) {
+      console.log('[SnapStack] ✅ Local data is current — skipping full fetch');
+      _fbReady = true;
+      data = local;
+      _attachListeners();
+      return local;
+    }
+
     const [metaSnap, decksSnap] = await Promise.all([
       database.ref('users/' + fbUser.uid + '/meta').get(),
       database.ref('users/' + fbUser.uid + '/decks').get(),
@@ -1305,10 +1316,11 @@ $('btn-ask-ai').addEventListener('click', async (e) => {
         } catch { /* skip malformed chunks */ }
       }
     }
-    // Basic markdown rendering
-    response.innerHTML = fullText
-      .replace(/```(\w+)?\n?([\s\S]*?)```/g, (_, lang, code) => `<pre>${escHtml(code.trim())}</pre>`)
-      .replace(/`([^`]+)`/g, (_, code) => `<code>${escHtml(code)}</code>`);
+    // Basic markdown rendering — escape the full text first, then promote
+    // code-block markers to real HTML (content is already escaped at this point).
+    response.innerHTML = escHtml(fullText)
+      .replace(/```(?:\w+)?\n?([\s\S]*?)```/g, (_, code) => `<pre>${code.trim()}</pre>`)
+      .replace(/`([^`]+)`/g, (_, code) => `<code>${code}</code>`);
   } catch (err) {
     response.innerHTML = `<span style="color:#e74c3c">Error: ${escHtml(err.message)}</span>`;
   } finally {
