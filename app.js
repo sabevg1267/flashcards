@@ -421,9 +421,6 @@ function renderFolderBlock(folder) {
     if (dragFolderId && dragFolderId !== folder.id) moveFolderIntoFolder(dragFolderId, folder.id);
   });
 
-  // ── Swipe-to-delete (mobile) ─────────────────────────────────────────────
-  _attachSwipeDelete(header, () => _deleteFolder(folder));
-
   // ── Touch drag ───────────────────────────────────────────────────────────
   _attachFolderTouchDrag(header, block, folder);
 
@@ -670,17 +667,6 @@ function makeDeckItem(deck) {
     if (fbUser && _fbReady) {
       console.log('[SnapStack] 🗑️  DELETE deck node:', deckIdToDelete);
       database.ref('users/' + fbUser.uid + '/decks/' + deckIdToDelete).remove().catch(console.error);
-    }
-    save(data); renderHome();
-  });
-
-  // Swipe-to-delete (mobile)
-  _attachSwipeDelete(item, () => {
-    if (!confirm(`Delete "${deck.name}" and all its cards?`)) return;
-    _deleteStorageImagesForDeck(deck);
-    data.decks = data.decks.filter(d => d.id !== deck.id);
-    if (fbUser && _fbReady) {
-      database.ref('users/' + fbUser.uid + '/decks/' + deck.id).remove().catch(console.error);
     }
     save(data); renderHome();
   });
