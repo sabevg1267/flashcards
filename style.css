@@ -122,12 +122,24 @@ body {
 }
 
 @media (max-width: 860px) {
+  body {
+    overflow: hidden;
+    justify-content: flex-start;
+  }
   #page-layout {
-    grid-template-columns: minmax(0, 560px);
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 100%;
     padding: 0 12px;
     height: 100vh;
+    box-sizing: border-box;
   }
-  .view { grid-column: 1; }
+  .view {
+    grid-column: unset;
+    width: 100%;
+    max-width: 100%;
+  }
   #ad-sidebar { display: none; }
 }
 
