@@ -6,11 +6,13 @@ firebase.initializeApp({
   projectId:         'firebasics-99c9b',
   storageBucket:     'firebasics-99c9b.appspot.com',
   messagingSenderId: '673506510856',
-  appId:             '1:673506510856:web:c49b561e89db01dd24a9bd',
+  appId:             '1:673506510856:web:311f79be1aece0f424a9bd',
+  measurementId:     'G-6HKG0NTS6N',
 });
-const auth     = firebase.auth();
-const database = firebase.database();
-const storage  = firebase.storage();
+const auth      = firebase.auth();
+const database  = firebase.database();
+const storage   = firebase.storage();
+const analytics = firebase.analytics();
 let   fbUser   = null;
 let   _fbReady = false; // true only after Firebase data has been loaded into `data`
 
@@ -51,7 +53,7 @@ function save(d) {
   // Debounce: batch rapid successive saves into one Firebase write
   clearTimeout(save._timer);
   save._pendingData = d;
-  save._timer = setTimeout(save._flush, 300);
+  save._timer = setTimeout(save._flush, 2000);
 }
 save._flush = function() {
   if (!fbUser || !save._pendingData) return;
@@ -178,34 +180,42 @@ async function loadFromFirebase() {
   }
 }
 
-// Attach realtime listener to users/{uid} so any change from another device
-// triggers a re-render. Stores a proper detach function in _fbListener.
+// Attach realtime listener to only meta/lastModified (a single integer) so we
+// don't re-download all decks on every write. Only fetches the full data when
+// a genuinely newer timestamp is detected, meaning a change came from another device.
 function _attachListeners() {
   if (_fbListener) _fbListener(); // detach any previous listener
-  const ref = database.ref('users/' + fbUser.uid);
-  const cb = ref.on('value', snap => {
+  const ref = database.ref('users/' + fbUser.uid + '/meta/lastModified');
+  const cb = ref.on('value', async snap => {
     if (!_fbReady || save._pendingData) return;
     if (!snap.exists()) return;
-    const raw = snap.val();
-    if (!raw.meta) return; // pre-migration snapshot, ignore
-    const decksRaw = raw.decks || {};
-    const remoteDecks = Object.values(decksRaw).map(dk => {
-      dk.cards = toArray(dk.cards);
-      return dk;
-    });
-    const meta = raw.meta;
-    const remote = _sanitize({
-      folders: toArray(meta.folders),
-      decks: remoteDecks,
-      lightWorkTotal: meta.lightWorkTotal || 0,
-      lastModified: meta.lastModified || 0,
-    });
-    if ((remote.lastModified || 0) > (data.lastModified || 0)) {
-      console.log('[SnapStack] 🔁 REALTIME UPDATE from another device — re-rendering');
+    const remoteTs = snap.val() || 0;
+    if (remoteTs <= (data.lastModified || 0)) return; // own write or stale, skip
+    console.log('[SnapStack] 🔁 REALTIME UPDATE from another device — fetching data');
+    try {
+      const [metaSnap, decksSnap] = await Promise.all([
+        database.ref('users/' + fbUser.uid + '/meta').get(),
+        database.ref('users/' + fbUser.uid + '/decks').get(),
+      ]);
+      if (!metaSnap.exists()) return;
+      const meta = metaSnap.val();
+      const decksRaw = decksSnap.exists() ? decksSnap.val() : {};
+      const decks = Object.values(decksRaw).map(dk => {
+        dk.cards = toArray(dk.cards);
+        return dk;
+      });
+      const remote = _sanitize({
+        folders: toArray(meta.folders),
+        decks,
+        lightWorkTotal: meta.lightWorkTotal || 0,
+        lastModified: meta.lastModified || 0,
+      });
       data = remote;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
       if (views.home.classList.contains('active')) renderHome();
       if (views.deck.classList.contains('active')) renderDeck();
+    } catch (err) {
+      console.warn('[SnapStack] Failed to fetch cross-device update:', err);
     }
   }, err => console.warn('Firebase listener error:', err));
   _fbListener = () => ref.off('value', cb);
