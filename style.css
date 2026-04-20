@@ -331,6 +331,9 @@ button.back:hover { background: var(--surface2); }
   font-size: 0.78rem;
   color: var(--muted);
   margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .deck-actions {
   display: flex;

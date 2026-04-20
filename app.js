@@ -366,8 +366,8 @@ function renderFolderBlock(folder) {
     <span class="folder-meta">${totalChildren} item${totalChildren !== 1 ? 's' : ''}</span>
     <div class="folder-actions">
       <button data-frename="${folder.id}">Rename</button>
-      ${folder.parentFolderId ? '<button data-funparent>&#8593; Root</button>' : ''}
-      <button class="btn-delete-desktop" data-fdelete="${folder.id}">Delete</button>
+      ${folder.parentFolderId ? '<button data-funparent>&#8593;</button>' : ''}
+      <button class="btn-delete-desktop" data-fdelete="${folder.id}">&#10005;</button>
     </div>`;
 
   header.addEventListener('click', e => {
@@ -640,8 +640,8 @@ function makeDeckItem(deck) {
     </div>
     <div class="deck-actions">
       <button data-rename="${deck.id}">Rename</button>
-      ${deck.folderId ? '<button data-unparent>↑ Root</button>' : ''}
-      <button class="btn-delete-desktop" data-delete="${deck.id}">Delete</button>
+      ${deck.folderId ? '<button data-unparent>&#8593;</button>' : ''}
+      <button class="btn-delete-desktop" data-delete="${deck.id}">&#10005;</button>
     </div>`;
 
   item.querySelector('[data-open]').addEventListener('click', () => openDeck(deck.id));
