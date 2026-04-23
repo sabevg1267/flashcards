@@ -291,6 +291,8 @@ let activeTags    = [];       // tags currently selected in the filter bar
 let studyQueue   = [];   // remaining cards this session
 let studyDone    = 0;    // cards marked Light work this session
 let isFlipped    = false;
+let _selectMode   = false;       // bulk-tag selection mode
+let _selectedIds  = new Set();   // card IDs currently checked
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 const views = {
@@ -848,6 +850,8 @@ $('btn-new-folder').addEventListener('click', () => {
 // ── Deck view ─────────────────────────────────────────────────────────────────
 function openDeck(deckId) {
   currentDeckId = deckId;
+  _selectMode = false;
+  _selectedIds.clear();
   renderDeck();
 }
 
@@ -883,7 +887,7 @@ function renderDeck() {
   // Build tag filter bar from all tags in this deck
   const allTags = [...new Set(deck.cards.flatMap(c => c.tags || []))];
   const filterBar = $('tag-filter-bar');
-  filterBar.classList.toggle('hidden', allTags.length === 0);
+  filterBar.classList.toggle('hidden', allTags.length === 0 || _selectMode);
   const filterChips = $('tag-filter-chips');
   filterChips.innerHTML = '';
   activeTags = activeTags.filter(t => allTags.includes(t)); // prune stale
@@ -898,16 +902,24 @@ function renderDeck() {
     });
     filterChips.appendChild(chip);
   });
+
+  // Bulk-tag bar
+  const bulkBar = $('bulk-tag-bar');
+  bulkBar.classList.toggle('hidden', !_selectMode);
+  $('btn-select-mode').classList.toggle('active', _selectMode);
+  if (_selectMode) _updateBulkCount();
+
   const list = $('card-list');
   list.innerHTML = '';
 
-  const displayed = activeTags.length > 0
+  const displayed = activeTags.length > 0 && !_selectMode
     ? deck.cards.filter(c => activeTags.every(t => (c.tags || []).includes(t)))
     : deck.cards;
 
   displayed.forEach(card => {
     const item = document.createElement('div');
-    item.className = 'card-item';
+    const isSelected = _selectedIds.has(card.id);
+    item.className = 'card-item' + (_selectMode ? ' selectable' + (isSelected ? ' selected' : '') : '');
     const tagsHtml = (card.tags || []).map(t => `<span class="card-tag">${escHtml(t)}</span>`).join('');
     const ratings = card.ratings || [0,0,0,0];
     const statsHtml = ratings.some(n => n > 0)
@@ -915,44 +927,118 @@ function renderDeck() {
           ? `<span class="card-stat ${RATING_META[i].cls}" title="${RATING_META[i].label}">${n}</span>`
           : '').join('')}</div>`
       : '';
+    const cbHtml = _selectMode
+      ? `<div class="card-select-cb">${isSelected ? '✓' : ''}</div>`
+      : '';
     item.innerHTML = `
+      ${cbHtml}
       <div class="card-texts">
         <div class="card-q">${card.type === 'cloze' ? '<span class="badge-cloze">C</span>' : ''}${escHtml(htmlPreview(card.front))}</div>
         <div class="card-a">${card.type === 'cloze' ? '' : escHtml(htmlPreview(card.back))}</div>
         ${tagsHtml ? `<div class="card-tags">${tagsHtml}</div>` : ''}
         ${statsHtml}
       </div>
-      <div class="card-actions">
+      ${_selectMode ? '' : `<div class="card-actions">
         <button data-edit="${card.id}">Edit</button>
         <button data-del="${card.id}">✕</button>
-      </div>`;
+      </div>`}`;
 
-    item.querySelector('[data-edit]').addEventListener('click', () => {
-      // Snapshot Storage URLs before edit so we can delete any that are removed
-      const oldUrls = _extractStorageUrls(card.front + (card.back || ''));
-      openCardModal('Edit Card', card.front, card.back, (f, b, t, tags) => {
-        const newUrls = _extractStorageUrls(f + (b || ''));
-        oldUrls.forEach(url => {
-          if (!newUrls.has(url)) {
-            storage.refFromURL(url).delete()
-              .catch(err => console.warn('[SnapStack] Could not delete replaced image:', err?.code || err?.message));
-          }
-        });
-        card.front = f; card.back = b; card.type = t || 'normal'; card.tags = tags || [];
+    if (_selectMode) {
+      item.addEventListener('click', () => {
+        if (_selectedIds.has(card.id)) _selectedIds.delete(card.id);
+        else _selectedIds.add(card.id);
+        renderDeck();
+      });
+    } else {
+      item.querySelector('[data-edit]').addEventListener('click', () => {
+        // Snapshot Storage URLs before edit so we can delete any that are removed
+        const oldUrls = _extractStorageUrls(card.front + (card.back || ''));
+        openCardModal('Edit Card', card.front, card.back, (f, b, t, tags) => {
+          const newUrls = _extractStorageUrls(f + (b || ''));
+          oldUrls.forEach(url => {
+            if (!newUrls.has(url)) {
+              storage.refFromURL(url).delete()
+                .catch(err => console.warn('[SnapStack] Could not delete replaced image:', err?.code || err?.message));
+            }
+          });
+          card.front = f; card.back = b; card.type = t || 'normal'; card.tags = tags || [];
+          save(data, currentDeckId); renderDeck();
+        }, false, card.type || 'normal', card.tags || []);
+      });
+      item.querySelector('[data-del]').addEventListener('click', () => {
+        _deleteStorageImagesForDeck({ cards: [card] });
+        deck.cards = deck.cards.filter(c => c.id !== card.id);
         save(data, currentDeckId); renderDeck();
-      }, false, card.type || 'normal', card.tags || []);
-    });
-    item.querySelector('[data-del]').addEventListener('click', () => {
-      _deleteStorageImagesForDeck({ cards: [card] });
-      deck.cards = deck.cards.filter(c => c.id !== card.id);
-      save(data, currentDeckId); renderDeck();
-    });
+      });
+    }
 
     list.appendChild(item);
   });
 }
 
-$('btn-back-home').addEventListener('click', () => { currentDeckId = null; activeTags = []; renderHome(); });
+function _updateBulkCount() {
+  $('bulk-tag-count').textContent = `${_selectedIds.size} selected`;
+}
+
+function _exitSelectMode() {
+  _selectMode = false;
+  _selectedIds.clear();
+  $('bulk-tag-input').value = '';
+  renderDeck();
+}
+
+$('btn-select-mode').addEventListener('click', () => {
+  _selectMode = !_selectMode;
+  _selectedIds.clear();
+  renderDeck();
+});
+
+$('btn-bulk-cancel').addEventListener('click', _exitSelectMode);
+
+$('btn-bulk-deselect').addEventListener('click', () => {
+  _selectedIds.clear();
+  renderDeck();
+});
+
+$('btn-bulk-apply-tag').addEventListener('click', () => {
+  const tag = $('bulk-tag-input').value.trim();
+  if (!tag) { $('bulk-tag-input').focus(); return; }
+  if (_selectedIds.size === 0) return;
+  const deck = getDeck();
+  deck.cards.forEach(card => {
+    if (!_selectedIds.has(card.id)) return;
+    if (!card.tags) card.tags = [];
+    if (!card.tags.includes(tag)) card.tags.push(tag);
+  });
+  save(data, currentDeckId);
+  _exitSelectMode();
+});
+
+$('btn-bulk-remove-tag').addEventListener('click', () => {
+  const tag = $('bulk-tag-input').value.trim();
+  if (!tag) { $('bulk-tag-input').focus(); return; }
+  if (_selectedIds.size === 0) return;
+  const deck = getDeck();
+  deck.cards.forEach(card => {
+    if (!_selectedIds.has(card.id)) return;
+    card.tags = (card.tags || []).filter(t => t !== tag);
+  });
+  save(data, currentDeckId);
+  _exitSelectMode();
+});
+
+$('btn-bulk-select-all').addEventListener('click', () => {
+  const deck = getDeck();
+  if (deck) deck.cards.forEach(c => _selectedIds.add(c.id));
+  renderDeck();
+});
+
+// Also allow pressing Enter in the bulk tag input to apply
+$('bulk-tag-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') $('btn-bulk-apply-tag').click();
+});
+
+$('btn-back-home').addEventListener('click', () => { currentDeckId = null; activeTags = []; _exitSelectMode(); renderHome(); });
 
 $('btn-clear-tags').addEventListener('click', () => { activeTags = []; renderDeck(); });
 
@@ -1178,6 +1264,10 @@ function showStudyCard() {
     $('card-front-text').innerHTML = applyMathToHtml(sanitizeCardHtml(card.front));
     $('card-back-text').innerHTML  =
       `<div class="back-question">${applyMathToHtml(sanitizeCardHtml(card.front))}</div><div class="back-divider"></div><div class="back-answer">${applyMathToHtml(sanitizeCardHtml(card.back))}</div>`;
+    if (typeof Prism !== 'undefined') {
+      Prism.highlightAllUnder($('card-front-text'));
+      Prism.highlightAllUnder($('card-back-text'));
+    }
   }
   const total = studyDone + studyQueue.length;
   $('study-progress').textContent = `${studyDone} / ${total} done · ${studyQueue.length} remaining`;
@@ -1481,6 +1571,8 @@ function openCardModal(title, front, back, callback, keepOpen = false, editType 
   if (editType === 'normal') {
     $('modal-front').innerHTML = front;
     $('modal-back').innerHTML  = back;
+    _restoreCodeBlocks($('modal-front'));
+    _restoreCodeBlocks($('modal-back'));
   } else {
     $('modal-cloze').innerHTML = front; // cloze stores template in front
   }
@@ -1586,24 +1678,27 @@ $('modal-cancel').addEventListener('click', closeModal);
 // ── Math inline render (blur = render, focus = raw text) ──────────────────────
 // Returns the raw user text from a field (strips rendered state if present)
 function mathFieldGetRaw(field) {
-  return field.dataset.mathRaw !== undefined && field.dataset.mathRaw !== ''
-    ? field.dataset.mathRaw
-    : field.innerHTML.trim();
+  if (field.dataset.mathRaw !== undefined && field.dataset.mathRaw !== '') {
+    return field.dataset.mathRaw;
+  }
+  return _serializeField(field);
 }
 
 function mathFieldRender(field) {
-  if (field.querySelector('img')) return; // skip if images present
-  const raw = field.textContent;
-  if (!raw.trim()) return;
-  field.dataset.mathRaw = raw;
-  field.innerHTML = renderMath(raw);
+  if (field.querySelector('img, .code-block')) return; // skip if images or code blocks present
+  const rawHtml = field.innerHTML;
+  if (!field.textContent.trim()) return;
+  field.dataset.mathRaw = rawHtml;
+  // applyMathToHtml walks the DOM tree so block structure (<div>, <br>) is preserved
+  field.innerHTML = applyMathToHtml(sanitizeCardHtml(rawHtml));
 }
 
 function mathFieldRevert(field) {
   const raw = field.dataset.mathRaw;
   if (!raw) return;
-  field.textContent = raw;
+  field.innerHTML = raw; // restore original HTML (preserves newlines/structure)
   field.dataset.mathRaw = '';
+  _restoreCodeBlocks(field); // re-attach contenteditable + delete buttons
   // move cursor to end
   const sel = window.getSelection();
   const range = document.createRange();
@@ -1656,6 +1751,257 @@ $('modal-overlay').addEventListener('click', e => {
 $('modal-input').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !_isCardModal) $('modal-confirm').click();
 });
+
+// ── Code block insertion ──────────────────────────────────────────────────────
+const CODE_LANGS    = { python: 'Python', c: 'C', ocaml: 'OCaml', java: 'Java' };
+const _CODE_LANG_RE = /code\[(python|c|ocaml|java)\]$/i;
+
+// Sync textarea value → Prism-highlighted <pre><code>
+function _syncCodeHighlight(textarea) {
+  const block = textarea.closest('.code-block');
+  if (!block) return;
+  const lang    = (textarea.dataset.lang || block.dataset.lang || 'python').toLowerCase();
+  const codeEl  = block.querySelector('pre code');
+  if (!codeEl) return;
+  const text    = textarea.value;
+  const grammar = (typeof Prism !== 'undefined') && (Prism.languages[lang] || Prism.languages.clike);
+  codeEl.innerHTML = grammar
+    ? Prism.highlight(text, grammar, lang) + (text.endsWith('\n') ? '\n' : '')
+    : escHtml(text);
+  // Keep pre height in sync for auto-resize
+  const pre = block.querySelector('pre');
+  if (pre) pre.style.minHeight = textarea.style.height || '';
+}
+
+// Attach interactive events to a fully-built code block element
+function _attachCodeBlockEvents(block) {
+  const ta  = block.querySelector('.code-textarea');
+  const pre = block.querySelector('pre');
+  if (!ta || !pre) return;
+
+  // Click highlighted pre → switch to editing textarea
+  pre.addEventListener('click', () => {
+    pre.style.display = 'none';
+    ta.style.display  = 'block';
+    ta.style.height   = 'auto';
+    ta.style.height   = ta.scrollHeight + 'px';
+    ta.focus();
+  });
+
+  // Blur textarea → sync highlight, show pre
+  ta.addEventListener('blur', () => {
+    _syncCodeHighlight(ta);
+    ta.style.display  = 'none';
+    pre.style.display = 'block';
+  });
+
+  // Tab → insert 4 spaces (no focus jump)
+  ta.addEventListener('keydown', e => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const s = ta.selectionStart, end = ta.selectionEnd;
+      ta.value = ta.value.slice(0, s) + '    ' + ta.value.slice(end);
+      ta.selectionStart = ta.selectionEnd = s + 4;
+    }
+    // Escape or Shift+Enter → return focus to the outer field
+    if (e.key === 'Escape' || (e.key === 'Enter' && e.shiftKey)) {
+      e.preventDefault();
+      ta.blur();
+      const field = block.closest('[contenteditable="true"]');
+      if (field) {
+        field.focus();
+        // Try to place cursor in the div after the code block
+        const afterDiv = block.nextElementSibling;
+        if (afterDiv) {
+          const r = document.createRange();
+          r.setStart(afterDiv, 0);
+          r.collapse(true);
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(r);
+        }
+      }
+    }
+  });
+
+  // Auto-resize textarea
+  ta.addEventListener('input', () => {
+    ta.style.height = 'auto';
+    ta.style.height = ta.scrollHeight + 'px';
+  });
+
+  // Paste in textarea is always plain text (textarea default) — no extra handler needed
+}
+
+// Build a complete code block DOM element
+function _makeCodeBlock(lang, initialCode = '') {
+  const block = document.createElement('div');
+  block.className = 'code-block';
+  block.dataset.lang = lang;
+  block.contentEditable = 'false';
+
+  // Header
+  const header = document.createElement('div');
+  header.className = 'code-block-header';
+  header.contentEditable = 'false';
+  const badge = document.createElement('span');
+  badge.className = 'code-lang-badge';
+  badge.textContent = CODE_LANGS[lang] || lang;
+  badge.contentEditable = 'false';
+  const delBtn = document.createElement('button');
+  delBtn.className = 'code-block-del';
+  delBtn.type = 'button';
+  delBtn.textContent = '×';
+  delBtn.title = 'Remove code block';
+  delBtn.contentEditable = 'false';
+  header.appendChild(badge);
+  header.appendChild(delBtn);
+
+  // Highlighted pre/code (display mode)
+  const pre = document.createElement('pre');
+  pre.className = `language-${lang}`;
+  const codeEl = document.createElement('code');
+  codeEl.className = `language-${lang}`;
+  pre.appendChild(codeEl);
+
+  // Textarea (edit mode)
+  const ta = document.createElement('textarea');
+  ta.className = 'code-textarea';
+  ta.spellcheck = false;
+  ta.setAttribute('autocomplete', 'off');
+  ta.setAttribute('autocorrect', 'off');
+  ta.setAttribute('autocapitalize', 'off');
+  ta.placeholder = 'Type code here… (Esc or Shift+Enter to exit)';
+  ta.dataset.lang = lang;
+
+  block.appendChild(header);
+  block.appendChild(pre);
+  block.appendChild(ta);
+
+  if (initialCode) {
+    ta.value = initialCode;
+    _syncCodeHighlight(ta);
+    ta.style.display  = 'none';
+    pre.style.display = 'block';
+  } else {
+    // New block — start in edit mode
+    pre.style.display = 'none';
+    ta.style.display  = 'block';
+  }
+
+  _attachCodeBlockEvents(block);
+  return block;
+}
+
+// Restore interactive editing to code blocks after innerHTML assignment
+function _restoreCodeBlocks(field) {
+  field.querySelectorAll('.code-block').forEach(block => {
+    block.contentEditable = 'false';
+    if (block.querySelector('.code-textarea')) {
+      // Already has textarea — just re-attach events
+      _attachCodeBlockEvents(block);
+      return;
+    }
+    const lang = block.dataset.lang || 'python';
+    // Extract saved code text from <pre><code>
+    const savedPre  = block.querySelector('pre');
+    const codeText  = savedPre?.querySelector('code')?.textContent || '';
+    // Re-add del button if missing
+    const hdr = block.querySelector('.code-block-header');
+    if (hdr && !hdr.querySelector('.code-block-del')) {
+      const delBtn = document.createElement('button');
+      delBtn.className = 'code-block-del';
+      delBtn.type = 'button';
+      delBtn.textContent = '×';
+      delBtn.title = 'Remove code block';
+      delBtn.contentEditable = 'false';
+      hdr.appendChild(delBtn);
+    }
+    // Build fresh textarea
+    const ta = document.createElement('textarea');
+    ta.className = 'code-textarea';
+    ta.spellcheck = false;
+    ta.setAttribute('autocomplete', 'off');
+    ta.setAttribute('autocorrect', 'off');
+    ta.setAttribute('autocapitalize', 'off');
+    ta.placeholder = 'Type code here… (Esc or Shift+Enter to exit)';
+    ta.dataset.lang = lang;
+    ta.value = codeText;
+    ta.style.display = 'none';
+    block.appendChild(ta);
+    // Update pre/code to use Prism classes and sync highlight
+    if (savedPre) {
+      savedPre.className = `language-${lang}`;
+      const codeEl = savedPre.querySelector('code') || document.createElement('code');
+      codeEl.className = `language-${lang}`;
+      if (!savedPre.contains(codeEl)) savedPre.appendChild(codeEl);
+      savedPre.style.display = 'block';
+    }
+    _syncCodeHighlight(ta);
+    _attachCodeBlockEvents(block);
+  });
+}
+
+// Serialize a card field to HTML, replacing textarea-based editor with clean <pre><code>
+function _serializeField(field) {
+  const clone      = field.cloneNode(true);
+  const origBlocks = [...field.querySelectorAll('.code-block')];
+  clone.querySelectorAll('.code-block').forEach((block, i) => {
+    const lang     = block.dataset.lang || 'python';
+    const origTa   = origBlocks[i]?.querySelector('.code-textarea');
+    const codeText = origTa ? origTa.value : (block.querySelector('pre code')?.textContent || '');
+    // Remove interactive elements
+    block.querySelector('.code-block-del')?.remove();
+    block.querySelector('.code-textarea')?.remove();
+    // Ensure clean <pre><code> with raw text
+    let pre     = block.querySelector('pre');
+    if (!pre) { pre = document.createElement('pre'); block.appendChild(pre); }
+    pre.className = `language-${lang}`;
+    pre.style.cssText = '';
+    let codeEl  = pre.querySelector('code');
+    if (!codeEl) { codeEl = document.createElement('code'); pre.appendChild(codeEl); }
+    codeEl.className = `language-${lang}`;
+    codeEl.textContent = codeText; // use textContent so < > & are safely encoded
+    codeEl.removeAttribute('style');
+  });
+  return clone.innerHTML;
+}
+
+// Detect `code[lang]` just before cursor on Enter and replace with a code block
+function _tryInsertCodeBlock(field, e) {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) return false;
+  const range = sel.getRangeAt(0);
+  if (!range.collapsed) return false;
+  if (!field.contains(range.startContainer)) return false;
+  const node = range.startContainer;
+  if (node.nodeType !== Node.TEXT_NODE) return false;
+  const textBefore = node.textContent.slice(0, range.startOffset);
+  const match = _CODE_LANG_RE.exec(textBefore);
+  if (!match) return false;
+
+  const lang        = match[1].toLowerCase();
+  e.preventDefault();
+  const removeStart = range.startOffset - match[0].length;
+  const before      = node.textContent.slice(0, removeStart);
+  const after       = node.textContent.slice(range.startOffset);
+
+  node.textContent  = before;
+  if (after) node.parentNode.insertBefore(document.createTextNode(after), node.nextSibling);
+
+  const block    = _makeCodeBlock(lang);
+  node.parentNode.insertBefore(block, node.nextSibling);
+
+  // Ensure there's a focusable line after the block so the user can type below it
+  const afterDiv = document.createElement('div');
+  afterDiv.innerHTML = '<br>';
+  block.parentNode.insertBefore(afterDiv, block.nextSibling);
+
+  // Focus the textarea
+  const ta = block.querySelector('.code-textarea');
+  if (ta) { ta.focus(); ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; }
+  return true;
+}
 
 // ── Image insertion ───────────────────────────────────────────────────────────
 const _imageConversionMap = new Map(); // id → Promise
@@ -1767,30 +2113,36 @@ function insertImageIntoField(field, file) {
 
   const MAX_IMG_BYTES = 200 * 1024; // 200 KB hard limit
 
+  function _handleBlob(blob) {
+    if (blob.size > MAX_IMG_BYTES) {
+      img.remove();
+      img.classList.remove('img-uploading');
+      _imageConversionMap.delete(convId);
+      showCardToast('Image too large (max 200 KB). Try a smaller screenshot.', true);
+      return;
+    }
+    if (fbUser) {
+      return _uploadToStorage(img, blob, convId)
+        .catch(err => {
+          console.error('📸 Storage upload failed:', err?.code || err?.message || err);
+          img.remove();
+          img.classList.remove('img-uploading');
+          _imageConversionMap.delete(convId);
+          showCardToast('Image upload failed. Check Storage rules in Firebase.', true);
+        });
+    }
+    return _fallbackToBase64(img, blob, convId);
+  }
+
   const conversionDone = _compressImage(file)
-    .then(compressed => {
-      if (compressed.size > MAX_IMG_BYTES) {
-        img.remove();
-        img.classList.remove('img-uploading');
-        _imageConversionMap.delete(convId);
-        showCardToast('Image too large (max 200 KB). Try a smaller screenshot.', true);
-        return;
-      }
-      if (fbUser) {
-        return _uploadToStorage(img, compressed, convId)
-          .catch(err => {
-            console.error('📸 Storage upload failed:', err?.code || err?.message || err);
-            img.remove();
-            img.classList.remove('img-uploading');
-            _imageConversionMap.delete(convId);
-            showCardToast('Image upload failed. Check Storage rules in Firebase.', true);
-          });
-      }
-      // Not signed in — base64 fallback (expected during offline/guest use)
-      return _fallbackToBase64(img, compressed, convId);
+    .then(_handleBlob)
+    .catch(err => {
+      // Compression failed (e.g. canvas toBlob issue) — try the original file directly.
+      console.warn('📸 Compression failed, trying original file:', err);
+      return _handleBlob(file);
     })
     .catch(err => {
-      console.error('📸 Image compression failed:', err);
+      console.error('📸 Image insertion failed:', err);
       img.remove();
       img.classList.remove('img-uploading');
       _imageConversionMap.delete(convId);
@@ -1830,6 +2182,17 @@ function waitForPendingImages(...fields) {
   const field = $(id);
   // Paste image from clipboard
   field.addEventListener('paste', e => {
+    // If there's any plain text available, always prefer it over any image
+    // representation. Copying a code snippet from a browser/IDE puts BOTH
+    // text and an image (rendered view) on the clipboard, so checking
+    // getData('text/plain') is the most reliable way to detect that case.
+    const text = e.clipboardData?.getData('text/plain') ?? '';
+    if (text) {
+      e.preventDefault();
+      document.execCommand('insertText', false, text);
+      return;
+    }
+    // No text — check for a real image paste (e.g. screenshot from clipboard)
     const items = Array.from(e.clipboardData?.items || []);
     const imageItem = items.find(it => it.type.startsWith('image/'));
     if (imageItem) {
@@ -1840,10 +2203,24 @@ function waitForPendingImages(...fields) {
         return;
       }
     }
-    // Plain text paste — strip HTML tags
-    e.preventDefault();
-    const text = e.clipboardData.getData('text/plain');
-    document.execCommand('insertText', false, text);
+    // Fallback: let the browser handle it
+  });
+});
+
+// ── Code block keyboard & interaction ────────────────────────────────────────
+['modal-front', 'modal-back'].forEach(id => {
+  const field = $(id);
+  // Trigger code block insertion when Enter is pressed after code[lang]
+  field.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      if (_tryInsertCodeBlock(field, e)) return;
+    }
+  });
+  // Delete code block when × button is clicked
+  field.addEventListener('click', e => {
+    if (e.target.classList.contains('code-block-del')) {
+      e.target.closest('.code-block').remove();
+    }
   });
 });
 
@@ -2026,7 +2403,11 @@ function applyMathToHtml(html) {
       const wrap = document.createElement('span');
       wrap.innerHTML = rendered;
       node.parentNode.replaceChild(wrap, node);
-    } else if (node.nodeType === Node.ELEMENT_NODE && node.tagName.toLowerCase() !== 'img') {
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      const tag = node.tagName.toLowerCase();
+      if (tag === 'img') return;
+      // Don't apply math rendering inside code blocks
+      if (node.classList && node.classList.contains('code-block')) return;
       [...node.childNodes].forEach(walk);
     }
   }
@@ -2034,14 +2415,16 @@ function applyMathToHtml(html) {
   return div.innerHTML;
 }
 
-// Extract plain-text preview from stored HTML (may contain <img> tags)
+// Extract plain-text preview from stored HTML (may contain <img> and code blocks)
 function htmlPreview(html) {
   const d = document.createElement('div');
   d.innerHTML = html;
-  const text = d.textContent.trim();
-  const hasImg = !!d.querySelector('img');
-  if (text && hasImg) return text + ' [img]';
-  if (hasImg) return '[image]';
+  const text    = d.textContent.trim();
+  const hasImg  = !!d.querySelector('img');
+  const hasCode = !!d.querySelector('.code-block');
+  const extras  = [hasImg && '[img]', hasCode && '[code]'].filter(Boolean).join(' ');
+  if (text && extras) return text + ' ' + extras;
+  if (extras) return extras;
   return text;
 }
 
@@ -2081,10 +2464,25 @@ function sanitizeCardHtml(html) {
           });
           return;
         }
-        if (tag === 'span' || tag === 'div' || tag === 'br') {
-          // Strip all event-handler attributes
+        if (tag === 'pre' || tag === 'code') {
+          // Allow pre/code for code blocks; strip event handlers only
           [...child.attributes].forEach(attr => {
-            if (attr.name.startsWith('on')) child.removeAttribute(attr.name);
+            if (attr.name.startsWith('on') || attr.name === 'contenteditable' || attr.name === 'style')
+              child.removeAttribute(attr.name);
+          });
+          clean(child);
+          return;
+        }
+        if (tag === 'button') {
+          child.remove(); // strip buttons (e.g. code-block-del) from saved HTML
+          return;
+        }
+        if (tag === 'span' || tag === 'div' || tag === 'br') {
+          // Strip event handlers and contenteditable (security)
+          [...child.attributes].forEach(attr => {
+            if (attr.name.startsWith('on') || attr.name === 'contenteditable') {
+              child.removeAttribute(attr.name);
+            }
           });
           clean(child);
           return;

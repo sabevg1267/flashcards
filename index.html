@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://www.googleapis.com https://apis.google.com https://pagead2.googlesyndication.com https://accounts.google.com https://*.firebaseio.com https://www.googletagmanager.com; script-src-elem 'self' 'unsafe-inline' https://www.gstatic.com https://www.googleapis.com https://apis.google.com https://pagead2.googlesyndication.com https://accounts.google.com https://*.firebaseio.com https://www.googletagmanager.com; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://generativelanguage.googleapis.com https://pagead2.googlesyndication.com https://accounts.google.com; img-src 'self' data: https://firebasestorage.googleapis.com https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com; font-src https://fonts.gstatic.com; frame-src https://accounts.google.com https://firebasics-99c9b.firebaseapp.com; object-src 'none';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://www.googleapis.com https://apis.google.com https://pagead2.googlesyndication.com https://accounts.google.com https://*.firebaseio.com https://www.googletagmanager.com https://cdn.jsdelivr.net; script-src-elem 'self' 'unsafe-inline' https://www.gstatic.com https://www.googleapis.com https://apis.google.com https://pagead2.googlesyndication.com https://accounts.google.com https://*.firebaseio.com https://www.googletagmanager.com https://cdn.jsdelivr.net; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://generativelanguage.googleapis.com https://pagead2.googlesyndication.com https://accounts.google.com; img-src 'self' data: https://firebasestorage.googleapis.com https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com https://cdn.jsdelivr.net; font-src https://fonts.gstatic.com; frame-src https://accounts.google.com https://firebasics-99c9b.firebaseapp.com; object-src 'none';" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="SnapStack" />
@@ -13,6 +13,13 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css?v=31" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+  <script>window.Prism = window.Prism || {}; Prism.manual = true;</script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-ocaml.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-java.min.js"></script>
   <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4558933116271506" crossorigin="anonymous"></script>
 </head>
 <body>
@@ -41,6 +48,7 @@
       <h2 id="deck-title"></h2>
       <button id="btn-import" title="Import cards from text">&#8593; Import</button>
       <button id="btn-export" title="Export to CSV">&#8595; Export</button>
+      <button id="btn-select-mode" title="Select cards to bulk-tag">&#9745; Select</button>
       <button id="btn-study">Study</button>
     </header>
     <div id="deck-size-bar">
@@ -51,6 +59,15 @@
       <span class="tag-filter-label">Filter by tag:</span>
       <div id="tag-filter-chips"></div>
       <button id="btn-clear-tags" class="tag-clear-btn">Clear</button>
+    </div>
+    <div id="bulk-tag-bar" class="hidden">
+      <span id="bulk-tag-count" class="bulk-tag-count">0 selected</span>
+      <input type="text" id="bulk-tag-input" placeholder="Tag name…" maxlength="40" autocomplete="off" />
+      <button id="btn-bulk-apply-tag" class="bulk-apply-btn">Apply Tag</button>
+      <button id="btn-bulk-remove-tag" class="bulk-remove-btn">Remove Tag</button>
+      <button id="btn-bulk-select-all" class="bulk-select-all-btn">Select All</button>
+      <button id="btn-bulk-deselect" class="bulk-deselect-btn">Deselect All</button>
+      <button id="btn-bulk-cancel" class="bulk-cancel-btn">Cancel</button>
     </div>
     <div id="card-list"></div>
     <p id="no-cards" class="muted">No cards yet.</p>
