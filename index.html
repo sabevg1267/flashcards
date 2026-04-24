@@ -146,11 +146,13 @@
       <!-- Normal card fields (support images) -->
       <div class="card-field-row hidden" id="row-front">
         <div id="modal-front" class="modal-field" contenteditable="true" data-placeholder="Front (question)"></div>
+        <button class="img-pick-btn hl-btn" id="hl-btn-front" title="Highlight selected text">&#9646;</button>
         <button class="img-pick-btn" id="img-btn-front" title="Insert image">&#128444;</button>
         <input type="file" id="img-file-front" accept="image/*" class="hidden" />
       </div>
       <div class="card-field-row hidden" id="row-back">
         <div id="modal-back" class="modal-field" contenteditable="true" data-placeholder="Back (answer)"></div>
+        <button class="img-pick-btn hl-btn" id="hl-btn-back" title="Highlight selected text">&#9646;</button>
         <button class="img-pick-btn" id="img-btn-back" title="Insert image">&#128444;</button>
         <input type="file" id="img-file-back" accept="image/*" class="hidden" />
       </div>
@@ -159,6 +161,7 @@
       <div id="row-cloze" class="hidden">
         <div class="cloze-toolbar">
           <span class="cloze-hint">Select text then click <strong>[ ]</strong> to blank it</span>
+          <button id="btn-hl-cloze" class="cloze-wrap-btn hl-btn" title="Highlight selected text">&#9646;&nbsp;Mark</button>
           <button id="btn-wrap-cloze" class="cloze-wrap-btn">[ ]&nbsp;Blank</button>
         </div>
         <div id="modal-cloze" class="modal-field cloze-field" contenteditable="true" data-placeholder="Type sentence, select words to blank…"></div>

@@ -7,9 +7,9 @@
   --border: #353535;
   --text: #e8e8e8;
   --muted: #666;
-  --accent: #3cb371;
-  --accent-hover: #2e9e5e;
-  --good: #3d9e6b;
+  --accent: #CC785C;
+  --accent-hover: #b3624a;
+  --good: #CC785C;
   --again: #c0392b;
   --radius: 10px;
   --font: 'Inter', 'Segoe UI', system-ui, sans-serif;
@@ -170,7 +170,7 @@ header h1, header h2 {
 }
 header h1 { 
   letter-spacing: -0.5px;
-  background: linear-gradient(135deg, #5dd68a 0%, #3cb371 60%, #267a4e 100%);
+  background: linear-gradient(135deg, #e09a82 0%, #CC785C 60%, #a85c44 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -760,6 +760,20 @@ button.back:hover { background: var(--surface2); }
   display: inline;
   color: #e8621a;
   font-weight: 700;
+}
+
+/* Highlight token — created by the Mark button in the card editor */
+.highlight-token {
+  color: #E8B49E;
+  background: #1c0e08;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+/* Highlight button — tinted to match the highlight color */
+.hl-btn {
+  color: #CC785C !important;
+  border-color: #CC785C !important;
 }
 
 /* Cloze badge in card list */

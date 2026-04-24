@@ -1508,6 +1508,33 @@ function setCardType(type) {
 $('type-btn-normal').addEventListener('click', () => setCardType('normal'));
 $('type-btn-cloze').addEventListener('click',  () => setCardType('cloze'));
 
+// Wrap selected text in a highlight span (works for any contenteditable field)
+function wrapHighlight(savedRange) {
+  if (!savedRange) return;
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(savedRange);
+  const selectedText = savedRange.toString();
+  if (!selectedText.trim()) return;
+  // execCommand integrates with the browser's native undo stack (Ctrl+Z works).
+  // The zero-width space (\u200B) after the span ensures the cursor and any
+  // subsequent typing lands outside the highlight span's style context.
+  document.execCommand('insertHTML', false,
+    `<span class="highlight-token">${escHtml(selectedText)}</span>\u200B`);
+}
+
+// Save the selection on mousedown (before focus is stolen) and apply on click
+['hl-btn-front', 'hl-btn-back', 'btn-hl-cloze'].forEach(id => {
+  let _savedRange = null;
+  const btn = $(id);
+  btn.addEventListener('mousedown', e => {
+    e.preventDefault(); // prevent button from stealing focus
+    const sel = window.getSelection();
+    _savedRange = (sel && sel.rangeCount > 0 && !sel.isCollapsed) ? sel.getRangeAt(0).cloneRange() : null;
+  });
+  btn.addEventListener('click', () => wrapHighlight(_savedRange));
+});
+
 // Wrap selected text in {{...}}
 $('btn-wrap-cloze').addEventListener('click', () => {
   const field = $('modal-cloze');
