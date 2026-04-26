@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=31" />
+  <link rel="stylesheet" href="style.css?v=33" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
   <script>window.Prism = window.Prism || {}; Prism.manual = true;</script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
@@ -29,7 +29,7 @@
     <header>
       <h1>SnapStack</h1>
       <span id="sync-status" class="sync-status"></span>
-      <button id="btn-upgrade" class="upgrade-btn" title="Remove ads">⭐ Pro</button>
+      <button id="btn-upgrade" class="upgrade-btn" title="Support SnapStack">☕ Support</button>
       <button id="btn-new-folder">+ Folder</button>
       <button id="btn-new-deck">+ Deck</button>
       <button id="btn-signout" class="signout-btn" title="Sign out">↩</button>
@@ -37,7 +37,7 @@
     <div id="deck-list"></div>
     <p id="no-decks" class="muted">No decks yet. Create one to get started.</p>
     <p class="app-description">
-      SnapStack is a <strong>free</strong>, cross-platform flashcard app that works on your phone, tablet, and desktop — no install needed. Ads help keep it free for everyone. Want an ad-free experience? Upgrade to <strong>Pro</strong> above.
+      SnapStack is a <strong>free</strong>, cross-platform flashcard app that works on your phone, tablet, and desktop — no install needed. Ads help keep it free for everyone.
     </p>
   </div>
 
@@ -106,6 +106,12 @@
     <div id="study-done" class="hidden">
       <p>Session complete!</p>
       <button id="btn-finish-study">Back to Deck</button>
+    </div>
+    <div id="support-popup" class="support-popup hidden">
+      <button id="support-popup-close" class="support-popup-close" aria-label="Close">&#10005;</button>
+      <p class="support-popup-title">Enjoying SnapStack?</p>
+      <p class="support-popup-body">Your donation helps keep SnapStack free and running for students everywhere.</p>
+      <a href="https://ko-fi.com/sabevg1267" target="_blank" rel="noopener" class="support-popup-btn">☕ Support on Ko-fi</a>
     </div>
     <div class="ad-banner-study">
       <ins class="adsbygoogle"
@@ -255,6 +261,6 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-analytics-compat.js"></script>
-  <script src="app.js?v=31"></script>
+  <script src="app.js?v=33"></script>
 </body>
 </html>

@@ -1334,7 +1334,10 @@ function rateCard(rating) {
     if (studyQueue.length === 0) {
       const total = studyDone;
       $('study-progress').textContent = `${total} / ${total} done · 0 remaining`;
-      setTimeout(showStudyCard, 1400);
+      setTimeout(() => {
+        showStudyCard();
+        $('support-popup').classList.remove('hidden');
+      }, 1400);
       return;
     }
   } else {
@@ -1358,8 +1361,9 @@ $('btn-difficult').addEventListener('click', e => { e.stopPropagation(); rateCar
 $('btn-hard').addEventListener('click',      e => { e.stopPropagation(); rateCard(1); });
 $('btn-easy').addEventListener('click',      e => { e.stopPropagation(); rateCard(2); });
 $('btn-light').addEventListener('click',     e => { e.stopPropagation(); rateCard(3); });
-$('btn-back-deck').addEventListener('click', renderDeck);
-$('btn-finish-study').addEventListener('click', renderDeck);
+$('btn-back-deck').addEventListener('click', () => { $('support-popup').classList.add('hidden'); renderDeck(); });
+$('btn-finish-study').addEventListener('click', () => { $('support-popup').classList.add('hidden'); renderDeck(); });
+$('support-popup-close').addEventListener('click', () => $('support-popup').classList.add('hidden'));
 
 // ── AI Study Helper ───────────────────────────────────────────────────────────
 const AI_KEY_STORAGE = 'gemini_api_key';
@@ -2554,7 +2558,7 @@ function applyTier() {
 }
 
 $('btn-upgrade').addEventListener('click', () => {
-  window.open(LEMON_CHECKOUT_URL + '?checkout[custom][uid]=' + encodeURIComponent(fbUser?.uid || ''), '_blank');
+  window.open('https://ko-fi.com/sabevg1267', '_blank');
 });
 
 auth.onAuthStateChanged(async user => {
